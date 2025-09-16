@@ -10,6 +10,23 @@ FlipperHTTPRun::~FlipperHTTPRun()
     // nothing to do
 }
 
+void FlipperHTTPRun::debounceInput()
+{
+    static uint8_t debounceCounter = 0;
+    if (shouldDebounce)
+    {
+        lastInput = InputKeyMAX;
+        debounceCounter++;
+        if (debounceCounter < 2)
+        {
+            return;
+        }
+        debounceCounter = 0;
+        shouldDebounce = false;
+        inputHeld = false;
+    }
+}
+
 void FlipperHTTPRun::updateDraw(Canvas *canvas)
 {
     canvas_clear(canvas);
@@ -18,8 +35,11 @@ void FlipperHTTPRun::updateDraw(Canvas *canvas)
 
 void FlipperHTTPRun::updateInput(InputEvent *event)
 {
-    if (event->key == InputKeyBack)
+    lastInput = event->key;
+    debounceInput();
+    if (lastInput == InputKeyBack)
     {
+        shouldDebounce = true;
         // return to menu
         shouldReturnToMenu = true;
     }

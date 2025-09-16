@@ -6,12 +6,16 @@ class FlipperHTTPApp;
 class FlipperHTTPRun
 {
     void *appContext;        // reference to the app context
+    bool inputHeld;          // flag to check if input is held
+    InputKey lastInput;      // last input key pressed
+    bool shouldDebounce;     // flag to debounce input
     bool shouldReturnToMenu; // Flag to signal return to menu
 public:
     FlipperHTTPRun(void *appContext);
     ~FlipperHTTPRun();
     //
     bool isActive() const { return shouldReturnToMenu == false; } // Check if the run is active
+    void debounceInput();                                         // debounce input to prevent multiple triggers
     void updateDraw(Canvas *canvas);                              // update and draw the run
     void updateInput(InputEvent *event);                          // update input for the run
 };
