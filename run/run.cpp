@@ -27,6 +27,12 @@ void FlipperHTTPRun::debounceInput()
     }
 }
 
+void FlipperHTTPRun::drawMainMenuView(Canvas *canvas)
+{
+    const char *menuItems[] = {"Status", "Connect", "Scan", "Deauth", "Captive Portal"};
+    drawMenu(canvas, (uint8_t)currentMenuIndex, menuItems, 5);
+}
+
 void FlipperHTTPRun::drawMenu(Canvas *canvas, uint8_t selectedIndex, const char **menuItems, uint8_t menuCount)
 {
     canvas_clear(canvas);
@@ -224,7 +230,14 @@ void FlipperHTTPRun::drawMenu(Canvas *canvas, uint8_t selectedIndex, const char 
 void FlipperHTTPRun::updateDraw(Canvas *canvas)
 {
     canvas_clear(canvas);
-    canvas_draw_str(canvas, 0, 10, "FlipperHTTP Run!");
+    switch (currentView)
+    {
+    case AppViewMainMenu:
+        drawMainMenuView(canvas);
+        break;
+    default:
+        break;
+    };
 }
 
 void FlipperHTTPRun::updateInput(InputEvent *event)
