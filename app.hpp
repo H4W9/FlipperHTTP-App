@@ -74,6 +74,7 @@ public:
     void runDispatcher();                                                                              // run the app's view dispatcher to handle views and events
     bool saveChar(const char *path_name, const char *value);                                           // save a string to storage
     bool setHttpState(HTTPState state = IDLE) noexcept;                                                // set the HTTP state
+    bool sendHTTPCommand(HTTPCommand command);                                                         // send a command to the board
     bool sendWiFiCredentials(const char *ssid, const char *password);                                  // send WiFi credentials to the board
     static void viewPortDraw(Canvas *canvas, void *context);                                           // draw callback for the ViewPort (used in run instance)
     static void viewPortInput(InputEvent *event, void *context);                                       // input callback for the ViewPort (used in run instance)

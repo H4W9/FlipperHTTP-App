@@ -421,6 +421,16 @@ bool FlipperHTTPApp::saveChar(const char *path_name, const char *value)
     return true;
 }
 
+bool FlipperHTTPApp::sendHTTPCommand(HTTPCommand command)
+{
+    if (!flipperHttp)
+    {
+        FURI_LOG_E(TAG, "FlipperHTTP is not initialized");
+        return false;
+    }
+    return flipper_http_send_command(flipperHttp, command);
+}
+
 bool FlipperHTTPApp::sendWiFiCredentials(const char *ssid, const char *password)
 {
     if (!flipperHttp)

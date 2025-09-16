@@ -227,6 +227,18 @@ void FlipperHTTPRun::drawMenu(Canvas *canvas, uint8_t selectedIndex, const char 
     }
 }
 
+bool FlipperHTTPRun::httpRequestIsFinished()
+{
+    FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+    if (!app)
+    {
+        FURI_LOG_E(TAG, "httpRequestIsFinished: App context is NULL");
+        return true;
+    }
+    auto state = app->getHttpState();
+    return state == IDLE || state == ISSUE || state == INACTIVE;
+}
+
 void FlipperHTTPRun::updateDraw(Canvas *canvas)
 {
     canvas_clear(canvas);
@@ -250,4 +262,119 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
         // return to menu
         shouldReturnToMenu = true;
     }
+}
+
+void FlipperHTTPRun::userRequest(RequestType requestType)
+{
+    // Get app context to access HTTP functionality
+    FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+    furi_check(app);
+
+    // Allocate memory for credentials
+    char *username = (char *)malloc(64);
+    char *password = (char *)malloc(64);
+    if (!username || !password)
+    {
+        FURI_LOG_E(TAG, "userRequest: Failed to allocate memory for credentials");
+        if (username)
+            free(username);
+        if (password)
+            free(password);
+        return;
+    }
+
+    // Load credentials from storage
+    bool credentialsLoaded = true;
+    if (!app->loadChar("user_name", username, 64))
+    {
+        FURI_LOG_E(TAG, "Failed to load user_name");
+        credentialsLoaded = false;
+    }
+    if (!app->loadChar("user_pass", password, 64))
+    {
+        FURI_LOG_E(TAG, "Failed to load user_pass");
+        credentialsLoaded = false;
+    }
+
+    if (!credentialsLoaded)
+    {
+        switch (requestType)
+        {
+        case RequestTypeStatusConnection:
+        case RequestTypeStatusSSID:
+        case RequestTypeStatusIP:
+            statusStatus = RequestStatusCredentialsMissing;
+            break;
+        case RequestTypeConnect:
+            connectStatus = RequestStatusCredentialsMissing;
+            break;
+        case RequestTypeScan:
+            scanStatus = RequestStatusCredentialsMissing;
+            break;
+        default:
+            FURI_LOG_E(TAG, "Unknown request type: %d", requestType);
+            statusStatus = RequestStatusRequestError;
+            connectStatus = RequestStatusRequestError;
+            scanStatus = RequestStatusRequestError;
+            break;
+        }
+        free(username);
+        free(password);
+        return;
+    }
+
+    // Create JSON payload for login/registration
+    char *payload = (char *)malloc(256);
+    if (!payload)
+    {
+        FURI_LOG_E(TAG, "userRequest: Failed to allocate memory for payload");
+        free(username);
+        free(password);
+        return;
+    }
+    snprintf(payload, 256, "{\"username\":\"%s\",\"password\":\"%s\"}", username, password);
+
+    switch (requestType)
+    {
+    case RequestTypeStatusConnection:
+        if (!app->sendHTTPCommand(HTTP_CMD_STATUS))
+        {
+            statusStatus = RequestStatusRequestError;
+        }
+        break;
+    case RequestTypeStatusSSID:
+        if (!app->sendHTTPCommand(HTTP_CMD_SSID))
+        {
+            statusStatus = RequestStatusRequestError;
+        }
+        break;
+    case RequestTypeStatusIP:
+        if (!app->sendHTTPCommand(HTTP_CMD_IP_WIFI))
+        {
+            statusStatus = RequestStatusRequestError;
+        }
+        break;
+    case RequestTypeConnect:
+        if (!app->sendHTTPCommand(HTTP_CMD_WIFI_CONNECT))
+        {
+            connectStatus = RequestStatusRequestError;
+        }
+        break;
+    case RequestTypeScan:
+        if (!app->sendHTTPCommand(HTTP_CMD_SCAN))
+        {
+            scanStatus = RequestStatusRequestError;
+        }
+        break;
+    default:
+        FURI_LOG_E(TAG, "Unknown request type: %d", requestType);
+        statusStatus = RequestStatusRequestError;
+        connectStatus = RequestStatusRequestError;
+        scanStatus = RequestStatusRequestError;
+        break;
+    }
+
+    free(username);
+    free(password);
+    free(payload);
 }
