@@ -180,6 +180,14 @@ void FlipperHTTPApp::callbackSubmenuChoices(uint32_t index)
     }
 }
 
+void FlipperHTTPApp::clearHttpResponse()
+{
+    if (flipperHttp && flipperHttp->last_response)
+    {
+        memset(flipperHttp->last_response, 0, strlen(flipperHttp->last_response) + 1);
+    }
+}
+
 void FlipperHTTPApp::createAppDataPath()
 {
     Storage *storage = static_cast<Storage *>(furi_record_open(RECORD_STORAGE));
@@ -421,7 +429,7 @@ bool FlipperHTTPApp::saveChar(const char *path_name, const char *value)
     return true;
 }
 
-bool FlipperHTTPApp::sendHTTPCommand(HTTPCommand command)
+bool FlipperHTTPApp::sendHttpCommand(HTTPCommand command)
 {
     if (!flipperHttp)
     {
