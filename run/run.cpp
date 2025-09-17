@@ -1,7 +1,10 @@
 #include "run/run.hpp"
 #include "app.hpp"
 
-FlipperHTTPRun::FlipperHTTPRun(void *appContext) : appContext(appContext), shouldReturnToMenu(false)
+FlipperHTTPRun::FlipperHTTPRun(void *appContext) : appContext(appContext), connectionType(ConnectionTypeConnection), connectStatus(RequestStatusNotStarted),
+                                                   currentMenuIndex(0), currentSSIDIndex(0), currentView(AppViewMainMenu), inputHeld(false),
+                                                   lastInput(InputKeyMAX), loading(nullptr), saveWiFiStatus(RequestStatusNotStarted),
+                                                   scanStatus(RequestStatusNotStarted), shouldDebounce(false), shouldReturnToMenu(false), statusStatus(RequestStatusNotStarted)
 {
 }
 
@@ -27,10 +30,91 @@ void FlipperHTTPRun::debounceInput()
     }
 }
 
+void FlipperHTTPRun::drawConnectView(Canvas *canvas)
+{
+    canvas_clear(canvas);
+    canvas_set_font(canvas, FontPrimary);
+    static bool loadingStarted = false;
+    switch (connectStatus)
+    {
+    case RequestStatusWaiting:
+        if (!loadingStarted)
+        {
+            if (!loading)
+            {
+                loading = std::make_unique<Loading>(canvas);
+            }
+            loadingStarted = true;
+            if (loading)
+            {
+                loading->setText("Connecting...");
+            }
+        }
+        if (!this->httpRequestIsFinished())
+        {
+            if (loading)
+            {
+                loading->animate();
+            }
+        }
+        else
+        {
+            if (loading)
+            {
+                loading->stop();
+            }
+            loadingStarted = false;
+            FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+            furi_check(app);
+            if (app->getHttpState() == ISSUE)
+            {
+                connectStatus = RequestStatusRequestError;
+                return;
+            }
+            const char *response = app->getHttpResponse();
+            if (response && strlen(response) > 0)
+            {
+                /* This returns:
+                 - [SUCCESS] Connected to Wifi.
+                 - [ERROR] Failed to connect to Wifi.
+                 - [INFO] Already connected to WiFi.
+                */
+                if (strstr(response, "[ERROR]") == NULL)
+                {
+                    connectStatus = RequestStatusSuccess;
+                }
+                else
+                {
+                    connectStatus = RequestStatusRequestError;
+                }
+            }
+            else
+            {
+                connectStatus = RequestStatusRequestError;
+            }
+        }
+        break;
+    case RequestStatusSuccess:
+        canvas_set_font(canvas, FontSecondary);
+        canvas_draw_str(canvas, 0, 10, "WiFi saved and connected!!");
+        canvas_draw_str(canvas, 0, 60, "Press 'BACK' to leave.");
+        canvas_set_font(canvas, FontPrimary);
+        break;
+    case RequestStatusRequestError:
+        canvas_draw_str(canvas, 0, 10, "Connect request failed!");
+        canvas_draw_str(canvas, 0, 20, "Reconnect your board and");
+        canvas_draw_str(canvas, 0, 30, "try again later.");
+        break;
+    default:
+        canvas_draw_str(canvas, 0, 10, "Connecting...");
+        break;
+    }
+}
+
 void FlipperHTTPRun::drawMainMenuView(Canvas *canvas)
 {
-    const char *menuItems[] = {"Status", "Connect", "Scan", "Deauth", "Captive Portal"};
-    drawMenu(canvas, (uint8_t)currentMenuIndex, menuItems, 5);
+    const char *menuItems[] = {"Status", "Connect", "Scan"};
+    drawMenu(canvas, (uint8_t)currentMenuIndex, menuItems, 3);
 }
 
 void FlipperHTTPRun::drawMenu(Canvas *canvas, uint8_t selectedIndex, const char **menuItems, uint8_t menuCount)
@@ -227,6 +311,388 @@ void FlipperHTTPRun::drawMenu(Canvas *canvas, uint8_t selectedIndex, const char 
     }
 }
 
+void FlipperHTTPRun::drawSaveWiFiView(Canvas *canvas)
+{
+    canvas_clear(canvas);
+    canvas_set_font(canvas, FontPrimary);
+    static bool loadingStarted = false;
+    switch (saveWiFiStatus)
+    {
+    case RequestStatusWaiting:
+        if (!loadingStarted)
+        {
+            if (!loading)
+            {
+                loading = std::make_unique<Loading>(canvas);
+            }
+            loadingStarted = true;
+            if (loading)
+            {
+                loading->setText("Saving...");
+            }
+        }
+        if (!this->httpRequestIsFinished())
+        {
+            if (loading)
+            {
+                loading->animate();
+            }
+        }
+        else
+        {
+            if (loading)
+            {
+                loading->stop();
+            }
+            loadingStarted = false;
+            FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+            furi_check(app);
+            if (app->getHttpState() == ISSUE)
+            {
+                saveWiFiStatus = RequestStatusRequestError;
+                return;
+            }
+            const char *response = app->getHttpResponse();
+            if (response && strlen(response) > 0)
+            {
+                /* This returns:
+                 - [SUCCESS] Wifi settings saved.
+                 - [ERROR] Failed to save Wifi settings.
+                 - [ERROR] Failed to parse JSON
+                 - [ERROR] JSON does not contain ssid and password.
+                 - [ERROR] Failed to save settings to file.
+                 - [SUCCESS] Connected to the new Wifi network.
+                 - [ERROR] Failed to parse JSON data.
+                 - [ERROR] JSON must contain 'ssid' and 'password'.
+                 - [ERROR] Failed to write settings to storage.
+                 - [SUCCESS] Settings saved.
+                */
+                if (strstr(response, "[ERROR]") == NULL)
+                {
+                    saveWiFiStatus = RequestStatusSuccess;
+
+                    // switch to connect
+                    currentView = AppViewConnect;
+                    connectStatus = RequestStatusWaiting;
+                    userRequest(RequestTypeConnect);
+                }
+                else
+                {
+                    saveWiFiStatus = RequestStatusRequestError;
+                }
+            }
+            else
+            {
+                saveWiFiStatus = RequestStatusRequestError;
+            }
+        }
+        break;
+    case RequestStatusSuccess:
+        canvas_draw_str(canvas, 0, 10, "Saved successfully!");
+        canvas_draw_str(canvas, 0, 20, "Press BACK to leave.");
+        break;
+    case RequestStatusRequestError:
+        canvas_draw_str(canvas, 0, 10, "Save request failed!");
+        canvas_draw_str(canvas, 0, 20, "Reconnect your board and");
+        canvas_draw_str(canvas, 0, 30, "try again later.");
+        break;
+    default:
+        canvas_draw_str(canvas, 0, 10, "Saving...");
+        break;
+    }
+}
+
+void FlipperHTTPRun::drawScanView(Canvas *canvas)
+{
+    canvas_clear(canvas);
+    canvas_set_font(canvas, FontPrimary);
+    static bool loadingStarted = false;
+    switch (scanStatus)
+    {
+    case RequestStatusWaiting:
+        if (!loadingStarted)
+        {
+            if (!loading)
+            {
+                loading = std::make_unique<Loading>(canvas);
+            }
+            loadingStarted = true;
+            if (loading)
+            {
+                loading->setText("Scanning...");
+            }
+        }
+        if (!this->httpRequestIsFinished())
+        {
+            if (loading)
+            {
+                loading->animate();
+            }
+        }
+        else
+        {
+            if (loading)
+            {
+                loading->stop();
+            }
+            loadingStarted = false;
+            FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+            furi_check(app);
+            if (app->getHttpState() == ISSUE)
+            {
+                scanStatus = RequestStatusRequestError;
+                return;
+            }
+            const char *response = app->getHttpResponse();
+            if (response && strlen(response) > 0)
+            {
+                if (strstr(response, "[ERROR]") == NULL)
+                {
+                    scanStatus = RequestStatusSuccess;
+
+                    // Clear previous SSID list and reset index
+                    ssidList.clear();
+
+                    // Parse JSON response and populate SSID list
+                    for (uint8_t i = 0; i < 50; i++)
+                    {
+                        char *ssid_item = get_json_array_value("networks", i, app->getHttpResponse());
+                        if (ssid_item == NULL)
+                        {
+                            // end of the list
+                            break;
+                        }
+                        ssidList.push_back(std::string(ssid_item));
+                        free(ssid_item);
+                    }
+                }
+                else
+                {
+                    scanStatus = RequestStatusRequestError;
+                }
+            }
+            else
+            {
+                scanStatus = RequestStatusRequestError;
+            }
+        }
+        break;
+    case RequestStatusSuccess:
+    {
+        std::vector<const char *> ssid_cstr_list;
+        for (const auto &ssid : ssidList)
+        {
+            ssid_cstr_list.push_back(ssid.c_str());
+        }
+
+        if (!ssidList.empty())
+        {
+            drawMenu(canvas, currentSSIDIndex, ssid_cstr_list.data(), ssidList.size());
+        }
+        else
+        {
+            canvas_draw_str(canvas, 0, 30, "No networks found!");
+        }
+        break;
+    }
+    case RequestStatusRequestError:
+        canvas_draw_str(canvas, 0, 10, "Save request failed!");
+        canvas_draw_str(canvas, 0, 20, "Reconnect your board and");
+        canvas_draw_str(canvas, 0, 30, "try again later.");
+        break;
+    default:
+        canvas_draw_str(canvas, 0, 10, "Scanning...");
+        break;
+    }
+}
+
+void FlipperHTTPRun::drawStatusView(Canvas *canvas)
+{
+    /*
+    This view sequentially collects three pieces of information:
+    1. ConnectionTypeConnection: Check if Wi-Fi is connected (true/false)
+    2. ConnectionTypeSSID: Get current connected SSID
+    3. ConnectionTypeIP: Get current IP address
+    Then displays all three together.
+    */
+    canvas_clear(canvas);
+    canvas_set_font(canvas, FontPrimary);
+    static bool loadingStarted = false;
+
+    switch (statusStatus)
+    {
+    case RequestStatusWaiting:
+        if (!loadingStarted)
+        {
+            if (!loading)
+            {
+                loading = std::make_unique<Loading>(canvas);
+            }
+            loadingStarted = true;
+            if (loading)
+            {
+                loading->setText("Updating...");
+            }
+        }
+        if (!this->httpRequestIsFinished())
+        {
+            if (loading)
+            {
+                loading->animate();
+            }
+        }
+        else
+        {
+            if (loading)
+            {
+                loading->stop();
+            }
+            loadingStarted = false;
+            FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+            furi_check(app);
+            if (app->getHttpState() == ISSUE)
+            {
+                statusStatus = RequestStatusRequestError;
+                return;
+            }
+            const char *response = app->getHttpResponse();
+            if (response && strlen(response) > 0)
+            {
+                // Process response based on current connection type
+                switch (connectionType)
+                {
+                case ConnectionTypeConnection:
+                    // Parse connection status response
+                    if (strstr(response, "[ERROR]") == NULL)
+                    {
+                        connectInfoStatus = (strstr(response, "true") != NULL ||
+                                             strstr(response, "Connected") != NULL ||
+                                             strstr(response, "[SUCCESS]") != NULL ||
+                                             strstr(response, "[INFO]") != NULL);
+                    }
+                    else
+                    {
+                        connectInfoStatus = false;
+                    }
+                    // Move to next request type
+                    connectionType = ConnectionTypeSSID;
+                    userRequest(RequestTypeStatusSSID);
+                    break;
+
+                case ConnectionTypeSSID:
+                    // Parse SSID response
+                    if (strstr(response, "[ERROR]") == NULL)
+                    {
+                        // Extract SSID from response (remove [SUCCESS] or [INFO] prefix if present)
+                        const char *ssid_start = response;
+                        if (strstr(response, "[SUCCESS]") != NULL)
+                        {
+                            ssid_start = strstr(response, "]");
+                            if (ssid_start)
+                                ssid_start++; // skip the ]
+                            while (*ssid_start == ' ')
+                                ssid_start++; // skip spaces
+                        }
+                        else if (strstr(response, "[INFO]") != NULL)
+                        {
+                            ssid_start = strstr(response, "]");
+                            if (ssid_start)
+                                ssid_start++; // skip the ]
+                            while (*ssid_start == ' ')
+                                ssid_start++; // skip spaces
+                        }
+                        currentSSID = std::string(ssid_start);
+                    }
+                    else
+                    {
+                        currentSSID = "Not connected";
+                    }
+                    // Move to next request type
+                    connectionType = ConnectionTypeIP;
+                    userRequest(RequestTypeStatusIP);
+                    break;
+
+                case ConnectionTypeIP:
+                    // Parse IP response
+                    if (strstr(response, "[ERROR]") == NULL)
+                    {
+                        // Extract IP from response (remove [SUCCESS] or [INFO] prefix if present)
+                        const char *ip_start = response;
+                        if (strstr(response, "[SUCCESS]") != NULL)
+                        {
+                            ip_start = strstr(response, "]");
+                            if (ip_start)
+                                ip_start++; // skip the ]
+                            while (*ip_start == ' ')
+                                ip_start++; // skip spaces
+                        }
+                        else if (strstr(response, "[INFO]") != NULL)
+                        {
+                            ip_start = strstr(response, "]");
+                            if (ip_start)
+                                ip_start++; // skip the ]
+                            while (*ip_start == ' ')
+                                ip_start++; // skip spaces
+                        }
+                        currentIP = std::string(ip_start);
+                    }
+                    else
+                    {
+                        currentIP = "No IP assigned";
+                    }
+                    // All requests complete, show results
+                    statusStatus = RequestStatusSuccess;
+                    break;
+                }
+            }
+            else
+            {
+                statusStatus = RequestStatusRequestError;
+            }
+        }
+        break;
+
+    case RequestStatusSuccess:
+    {
+        // Display all collected information
+        canvas_draw_str(canvas, 0, 10, "WiFi Status:");
+
+        canvas_set_font(canvas, FontSecondary);
+
+        // Connection status
+        const char *connectionStatus = connectInfoStatus ? "Connected" : "Disconnected";
+        canvas_draw_str(canvas, 70, 10, connectionStatus);
+
+        // SSID
+        char ssidBuffer[64];
+        snprintf(ssidBuffer, sizeof(ssidBuffer), "SSID: %s", currentSSID.c_str());
+        canvas_draw_str(canvas, 0, 22, ssidBuffer);
+
+        // IP Address
+        char ipBuffer[64];
+        snprintf(ipBuffer, sizeof(ipBuffer), "IP: %s", currentIP.c_str());
+        canvas_draw_str(canvas, 0, 34, ipBuffer);
+
+        canvas_draw_str(canvas, 0, 60, "Press 'BACK' to leave.");
+
+        canvas_set_font(canvas, FontPrimary);
+        break;
+    }
+
+    case RequestStatusRequestError:
+        canvas_draw_str(canvas, 0, 10, "Status request failed!");
+        canvas_draw_str(canvas, 0, 20, "Reconnect your board and");
+        canvas_draw_str(canvas, 0, 30, "try again later.");
+        break;
+
+    case RequestStatusNotStarted:
+    case RequestStatusParseError:
+    default:
+        canvas_draw_str(canvas, 0, 10, "Updating...");
+        break;
+    }
+}
+
 bool FlipperHTTPRun::httpRequestIsFinished()
 {
     FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
@@ -235,6 +701,13 @@ bool FlipperHTTPRun::httpRequestIsFinished()
         FURI_LOG_E(TAG, "httpRequestIsFinished: App context is NULL");
         return true;
     }
+    // for this app, we just need to check the response
+    const char *response = app->getHttpResponse();
+    if (!response || strlen(response) == 0)
+    {
+        return false;
+    }
+    // state should be IDLE in this app
     auto state = app->getHttpState();
     return state == IDLE || state == ISSUE || state == INACTIVE;
 }
@@ -247,6 +720,18 @@ void FlipperHTTPRun::updateDraw(Canvas *canvas)
     case AppViewMainMenu:
         drawMainMenuView(canvas);
         break;
+    case AppViewStatus:
+        drawStatusView(canvas);
+        break;
+    case AppViewConnect:
+        drawConnectView(canvas);
+        break;
+    case AppViewScan:
+        drawScanView(canvas);
+        break;
+    case AppViewSaveWiFi:
+        drawSaveWiFiView(canvas);
+        break;
     default:
         break;
     };
@@ -256,12 +741,103 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
 {
     lastInput = event->key;
     debounceInput();
-    if (lastInput == InputKeyBack)
+    switch (currentView)
     {
-        shouldDebounce = true;
-        // return to menu
-        shouldReturnToMenu = true;
-    }
+    case AppViewMainMenu:
+        switch (lastInput)
+        {
+        case InputKeyRight:
+            if (currentMenuIndex < 2)
+            {
+                currentMenuIndex++;
+                shouldDebounce = true;
+            }
+            break;
+        case InputKeyLeft:
+            if (currentMenuIndex > 0)
+            {
+                currentMenuIndex--;
+                shouldDebounce = true;
+            }
+            break;
+        case InputKeyBack:
+            shouldDebounce = true;
+            shouldReturnToMenu = true;
+            if (loading)
+            {
+                loading.reset();
+            }
+            currentView = AppViewMainMenu;
+            currentMenuIndex = 0;
+            break;
+        case InputKeyOk:
+            shouldDebounce = true;
+            switch (currentMenuIndex)
+            {
+            case AppViewStatus:
+                currentView = AppViewStatus;
+                connectionType = ConnectionTypeConnection;
+                statusStatus = RequestStatusWaiting;
+                userRequest(RequestTypeStatusConnection);
+                break;
+            case AppViewConnect:
+                currentView = AppViewSaveWiFi;
+                saveWiFiStatus = RequestStatusWaiting;
+                userRequest(RequestTypeSaveWiFi);
+                break;
+            case AppViewScan:
+                currentView = AppViewScan;
+                currentSSIDIndex = 0;
+                scanStatus = RequestStatusWaiting;
+                userRequest(RequestTypeScan);
+                break;
+            default:
+                break;
+            };
+        default:
+            break;
+        }
+        break;
+    case AppViewScan:
+        switch (lastInput)
+        {
+        case InputKeyRight:
+            if (currentSSIDIndex < ssidList.size() - 1)
+            {
+                currentSSIDIndex++;
+                shouldDebounce = true;
+            }
+            break;
+        case InputKeyLeft:
+            if (currentSSIDIndex > 0)
+            {
+                currentSSIDIndex--;
+                shouldDebounce = true;
+            }
+            break;
+        case InputKeyBack:
+            shouldDebounce = true;
+            currentView = AppViewMainMenu;
+            break;
+        case InputKeyOk:
+            // TODO: Handle SSID selection (save selected SSID for connection)
+            break;
+        default:
+            break;
+        }
+        break;
+    default:
+        if (lastInput == InputKeyBack)
+        {
+            shouldDebounce = true;
+            if (currentView == AppViewStatus)
+            {
+                connectionType = ConnectionTypeConnection;
+            }
+            currentView = AppViewMainMenu;
+        }
+        break;
+    };
 }
 
 void FlipperHTTPRun::userRequest(RequestType requestType)
@@ -270,102 +846,64 @@ void FlipperHTTPRun::userRequest(RequestType requestType)
     FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
     furi_check(app);
 
-    // Allocate memory for credentials
-    char *username = (char *)malloc(64);
-    char *password = (char *)malloc(64);
-    if (!username || !password)
-    {
-        FURI_LOG_E(TAG, "userRequest: Failed to allocate memory for credentials");
-        if (username)
-            free(username);
-        if (password)
-            free(password);
-        return;
-    }
-
-    // Load credentials from storage
-    bool credentialsLoaded = true;
-    if (!app->loadChar("user_name", username, 64))
-    {
-        FURI_LOG_E(TAG, "Failed to load user_name");
-        credentialsLoaded = false;
-    }
-    if (!app->loadChar("user_pass", password, 64))
-    {
-        FURI_LOG_E(TAG, "Failed to load user_pass");
-        credentialsLoaded = false;
-    }
-
-    if (!credentialsLoaded)
-    {
-        switch (requestType)
-        {
-        case RequestTypeStatusConnection:
-        case RequestTypeStatusSSID:
-        case RequestTypeStatusIP:
-            statusStatus = RequestStatusCredentialsMissing;
-            break;
-        case RequestTypeConnect:
-            connectStatus = RequestStatusCredentialsMissing;
-            break;
-        case RequestTypeScan:
-            scanStatus = RequestStatusCredentialsMissing;
-            break;
-        default:
-            FURI_LOG_E(TAG, "Unknown request type: %d", requestType);
-            statusStatus = RequestStatusRequestError;
-            connectStatus = RequestStatusRequestError;
-            scanStatus = RequestStatusRequestError;
-            break;
-        }
-        free(username);
-        free(password);
-        return;
-    }
-
-    // Create JSON payload for login/registration
-    char *payload = (char *)malloc(256);
-    if (!payload)
-    {
-        FURI_LOG_E(TAG, "userRequest: Failed to allocate memory for payload");
-        free(username);
-        free(password);
-        return;
-    }
-    snprintf(payload, 256, "{\"username\":\"%s\",\"password\":\"%s\"}", username, password);
+    app->clearHttpResponse();
 
     switch (requestType)
     {
     case RequestTypeStatusConnection:
-        if (!app->sendHTTPCommand(HTTP_CMD_STATUS))
+        if (!app->sendHttpCommand(HTTP_CMD_STATUS))
         {
             statusStatus = RequestStatusRequestError;
         }
         break;
     case RequestTypeStatusSSID:
-        if (!app->sendHTTPCommand(HTTP_CMD_SSID))
+        if (!app->sendHttpCommand(HTTP_CMD_SSID))
         {
             statusStatus = RequestStatusRequestError;
         }
         break;
     case RequestTypeStatusIP:
-        if (!app->sendHTTPCommand(HTTP_CMD_IP_WIFI))
+        if (!app->sendHttpCommand(HTTP_CMD_IP_ADDRESS))
         {
             statusStatus = RequestStatusRequestError;
         }
         break;
     case RequestTypeConnect:
-        if (!app->sendHTTPCommand(HTTP_CMD_WIFI_CONNECT))
+        if (!app->sendHttpCommand(HTTP_CMD_WIFI_CONNECT))
         {
             connectStatus = RequestStatusRequestError;
         }
         break;
     case RequestTypeScan:
-        if (!app->sendHTTPCommand(HTTP_CMD_SCAN))
+        if (!app->sendHttpCommand(HTTP_CMD_SCAN))
         {
             scanStatus = RequestStatusRequestError;
         }
         break;
+    case RequestTypeSaveWiFi:
+    {
+        char wifi_ssid[64] = {0};
+        char wifi_pass[64] = {0};
+        if (!app->loadChar("wifi_ssid", wifi_ssid, sizeof(wifi_ssid)))
+        {
+            FURI_LOG_E(TAG, "Failed to load wifi_ssid");
+            connectStatus = RequestStatusRequestError;
+            break;
+        }
+        if (!app->loadChar("wifi_pass", wifi_pass, sizeof(wifi_pass)))
+        {
+            FURI_LOG_E(TAG, "Failed to load wifi_pass");
+            connectStatus = RequestStatusRequestError;
+            break;
+        }
+        if (!app->sendWiFiCredentials(wifi_ssid, wifi_pass))
+        {
+            FURI_LOG_E(TAG, "Failed to send WiFi credentials");
+            connectStatus = RequestStatusRequestError;
+        }
+
+        break;
+    }
     default:
         FURI_LOG_E(TAG, "Unknown request type: %d", requestType);
         statusStatus = RequestStatusRequestError;
@@ -373,8 +911,4 @@ void FlipperHTTPRun::userRequest(RequestType requestType)
         scanStatus = RequestStatusRequestError;
         break;
     }
-
-    free(username);
-    free(password);
-    free(payload);
 }
