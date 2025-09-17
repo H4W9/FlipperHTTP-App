@@ -2,7 +2,7 @@
 #include "app.hpp"
 
 FlipperHTTPRun::FlipperHTTPRun(void *appContext) : appContext(appContext), connectionType(ConnectionTypeConnection), connectStatus(RequestStatusNotStarted),
-                                                   currentMenuIndex(0), currentSSIDIndex(0), currentView(AppViewMainMenu), inputHeld(false),
+                                                   currentMenuIndex(0), currentSSIDIndex(0), currentView(AppViewMainMenu), inputHeld(false), keyboard(nullptr),
                                                    lastInput(InputKeyMAX), loading(nullptr), saveWiFiStatus(RequestStatusNotStarted),
                                                    scanStatus(RequestStatusNotStarted), shouldDebounce(false), shouldReturnToMenu(false), statusStatus(RequestStatusNotStarted)
 {
@@ -500,6 +500,16 @@ void FlipperHTTPRun::drawScanView(Canvas *canvas)
         canvas_draw_str(canvas, 0, 20, "Reconnect your board and");
         canvas_draw_str(canvas, 0, 30, "try again later.");
         break;
+    case RequestStatusKeyboard:
+        if (!keyboard)
+        {
+            keyboard = std::make_unique<Keyboard>();
+        }
+        if (keyboard)
+        {
+            keyboard->draw(canvas, "Enter password:");
+        }
+        break;
     default:
         canvas_draw_str(canvas, 0, 10, "Scanning...");
         break;
@@ -767,6 +777,10 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
             {
                 loading.reset();
             }
+            if (keyboard)
+            {
+                keyboard.reset();
+            }
             currentView = AppViewMainMenu;
             currentMenuIndex = 0;
             break;
@@ -799,31 +813,74 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
         }
         break;
     case AppViewScan:
-        switch (lastInput)
+        if (scanStatus == RequestStatusKeyboard)
         {
-        case InputKeyRight:
-            if (currentSSIDIndex < ssidList.size() - 1)
+            if (keyboard)
             {
-                currentSSIDIndex++;
-                shouldDebounce = true;
+                if (keyboard->handleInput(lastInput))
+                {
+                    FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+                    furi_check(app);
+                    app->saveChar("wifi_ssid", ssidList[currentSSIDIndex].c_str());
+                    app->saveChar("wifi_pass", keyboard->getText());
+                    scanStatus = RequestStatusWaiting;
+                    saveWiFiStatus = RequestStatusWaiting;
+                    userRequest(RequestTypeSaveWiFi);
+                    currentView = AppViewSaveWiFi;
+                    currentMenuIndex = 1; // move to connect
+                    currentSSIDIndex = 0;
+                    keyboard.reset();
+                }
+                if (lastInput != InputKeyMAX)
+                {
+                    shouldDebounce = true;
+                }
             }
-            break;
-        case InputKeyLeft:
-            if (currentSSIDIndex > 0)
+            if (lastInput == InputKeyBack)
             {
-                currentSSIDIndex--;
+                scanStatus = RequestStatusWaiting;
                 shouldDebounce = true;
+                currentView = AppViewMainMenu;
             }
-            break;
-        case InputKeyBack:
-            shouldDebounce = true;
-            currentView = AppViewMainMenu;
-            break;
-        case InputKeyOk:
-            // TODO: Handle SSID selection (save selected SSID for connection)
-            break;
-        default:
-            break;
+        }
+        else
+        {
+            switch (lastInput)
+            {
+            case InputKeyRight:
+                if (currentSSIDIndex < ssidList.size() - 1)
+                {
+                    currentSSIDIndex++;
+                    shouldDebounce = true;
+                }
+                break;
+            case InputKeyLeft:
+                if (currentSSIDIndex > 0)
+                {
+                    currentSSIDIndex--;
+                    shouldDebounce = true;
+                }
+                break;
+            case InputKeyBack:
+                shouldDebounce = true;
+                currentView = AppViewMainMenu;
+                break;
+            case InputKeyOk:
+                if (!keyboard)
+                {
+                    keyboard = std::make_unique<Keyboard>();
+                }
+                if (keyboard)
+                {
+                    keyboard->clearText();
+                    keyboard->setText(""); // Start with empty text
+                }
+                scanStatus = RequestStatusKeyboard;
+                shouldDebounce = true;
+                break;
+            default:
+                break;
+            }
         }
         break;
     default:

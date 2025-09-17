@@ -1,6 +1,7 @@
 #pragma once
 #include "easy_flipper/easy_flipper.h"
 #include "loading/loading.hpp"
+#include "run/keyboard.hpp"
 #include "memory"
 #include "vector"
 
@@ -20,6 +21,7 @@ typedef enum
     RequestStatusNotStarted = 2,   // Request not started
     RequestStatusWaiting = 3,      // Waiting for request response
     RequestStatusParseError = 4,   // Error parsing request info
+    RequestStatusKeyboard = 5,     // Keyboard for input (only used in scan for now)
 } RequestStatus;
 
 typedef enum
@@ -43,24 +45,25 @@ class FlipperHTTPApp;
 
 class FlipperHTTPRun
 {
-    void *appContext;                  // reference to the app context
-    bool connectInfoStatus;            // true/false if is connected
-    std::string currentSSID;           // current connected SSID
-    std::string currentIP;             // current IP address of the device
-    ConnectionType connectionType;     // type of connection info to retrieve
-    RequestStatus connectStatus;       // status of the Connect view
-    uint8_t currentMenuIndex;          // current menu index
-    uint8_t currentSSIDIndex;          // current SSID index for scan view
-    AppView currentView;               // current view of the social run
-    bool inputHeld;                    // flag to check if input is held
-    InputKey lastInput;                // last input key pressed
-    std::unique_ptr<Loading> loading;  // loading animation instance
-    RequestStatus saveWiFiStatus;      // status of the Save WiFi view
-    RequestStatus scanStatus;          // status of the Scan view
-    std::vector<std::string> ssidList; // list of scanned SSIDs
-    bool shouldDebounce;               // flag to debounce input
-    bool shouldReturnToMenu;           // Flag to signal return to menu
-    RequestStatus statusStatus;        // status of the Status view
+    void *appContext;                   // reference to the app context
+    bool connectInfoStatus;             // true/false if is connected
+    std::string currentSSID;            // current connected SSID
+    std::string currentIP;              // current IP address of the device
+    ConnectionType connectionType;      // type of connection info to retrieve
+    RequestStatus connectStatus;        // status of the Connect view
+    uint8_t currentMenuIndex;           // current menu index
+    uint8_t currentSSIDIndex;           // current SSID index for scan view
+    AppView currentView;                // current view of the social run
+    bool inputHeld;                     // flag to check if input is held
+    std::unique_ptr<Keyboard> keyboard; // keyboard instance for input handling
+    InputKey lastInput;                 // last input key pressed
+    std::unique_ptr<Loading> loading;   // loading animation instance
+    RequestStatus saveWiFiStatus;       // status of the Save WiFi view
+    RequestStatus scanStatus;           // status of the Scan view
+    std::vector<std::string> ssidList;  // list of scanned SSIDs
+    bool shouldDebounce;                // flag to debounce input
+    bool shouldReturnToMenu;            // Flag to signal return to menu
+    RequestStatus statusStatus;         // status of the Status view
 public:
     FlipperHTTPRun(void *appContext);
     ~FlipperHTTPRun();
