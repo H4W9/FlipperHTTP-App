@@ -1010,6 +1010,7 @@ bool flipper_http_send_command(FlipperHTTP *fhttp, HTTPCommand command)
     case HTTP_CMD_IP_ADDRESS:
         return flipper_http_send_data(fhttp, "[IP/ADDRESS]");
     case HTTP_CMD_IP_WIFI:
+        fhttp->method = GET;
         return flipper_http_send_data(fhttp, "[WIFI/IP]");
     case HTTP_CMD_SCAN:
         fhttp->method = GET;
