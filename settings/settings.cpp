@@ -11,7 +11,8 @@ FlipperHTTPSettings::FlipperHTTPSettings(ViewDispatcher **view_dispatcher, void 
 
     variable_item_wifi_ssid = variable_item_list_add(variable_item_list, "WiFi SSID", 1, nullptr, nullptr);
     variable_item_wifi_pass = variable_item_list_add(variable_item_list, "WiFi Password", 1, nullptr, nullptr);
-    variable_item_connect = variable_item_list_add(variable_item_list, "Connect", 1, nullptr, nullptr);
+    variable_item_user_name = variable_item_list_add(variable_item_list, "User Name", 1, nullptr, nullptr);
+    variable_item_user_pass = variable_item_list_add(variable_item_list, "User Password", 1, nullptr, nullptr);
 
     char loaded_ssid[64];
     char loaded_pass[64];
@@ -32,7 +33,23 @@ FlipperHTTPSettings::FlipperHTTPSettings(ViewDispatcher **view_dispatcher, void 
     {
         variable_item_set_current_value_text(variable_item_wifi_pass, "");
     }
-    variable_item_set_current_value_text(variable_item_connect, "");
+
+    if (app->loadChar("user_name", loaded_ssid, sizeof(loaded_ssid)))
+    {
+        variable_item_set_current_value_text(variable_item_user_name, loaded_ssid);
+    }
+    else
+    {
+        variable_item_set_current_value_text(variable_item_user_name, "");
+    }
+    if (app->loadChar("user_pass", loaded_pass, sizeof(loaded_pass)))
+    {
+        variable_item_set_current_value_text(variable_item_user_pass, "*****");
+    }
+    else
+    {
+        variable_item_set_current_value_text(variable_item_user_pass, "");
+    }
 }
 
 FlipperHTTPSettings::~FlipperHTTPSettings()
@@ -144,6 +161,48 @@ bool FlipperHTTPSettings::initTextInput(uint32_t view)
                                            textUpdatedPassCallback, callbackToSettings, view_dispatcher_ref, this);
 #endif
     }
+    else if (view == SettingsViewUserName)
+    {
+        if (app->loadChar("user_name", loaded, sizeof(loaded)))
+        {
+            strncpy(text_input_temp_buffer.get(), loaded, text_input_buffer_size);
+        }
+        else
+        {
+            text_input_temp_buffer[0] = '\0'; // Ensure empty if not loaded
+        }
+        text_input_temp_buffer[text_input_buffer_size - 1] = '\0'; // Ensure null-termination
+#ifndef FW_ORIGIN_Momentum
+        return easy_flipper_set_uart_text_input(&text_input, FlipperHTTPViewTextInput,
+                                                "Enter User Name", text_input_temp_buffer.get(), text_input_buffer_size,
+                                                textUpdatedUserNameCallback, callbackToSettings, view_dispatcher_ref, this);
+#else
+        return easy_flipper_set_text_input(&text_input, FlipperHTTPViewTextInput,
+                                           "Enter User Name", text_input_temp_buffer.get(), text_input_buffer_size,
+                                           textUpdatedUserNameCallback, callbackToSettings, view_dispatcher_ref, this);
+#endif
+    }
+    else if (view == SettingsViewUserPass)
+    {
+        if (app->loadChar("user_pass", loaded, sizeof(loaded)))
+        {
+            strncpy(text_input_temp_buffer.get(), loaded, text_input_buffer_size);
+        }
+        else
+        {
+            text_input_temp_buffer[0] = '\0'; // Ensure empty if not loaded
+        }
+        text_input_temp_buffer[text_input_buffer_size - 1] = '\0'; // Ensure null-termination
+#ifndef FW_ORIGIN_Momentum
+        return easy_flipper_set_uart_text_input(&text_input, FlipperHTTPViewTextInput,
+                                                "Enter User Password", text_input_temp_buffer.get(), text_input_buffer_size,
+                                                textUpdatedUserPassCallback, callbackToSettings, view_dispatcher_ref, this);
+#else
+        return easy_flipper_set_text_input(&text_input, FlipperHTTPViewTextInput,
+                                           "Enter User Password", text_input_temp_buffer.get(), text_input_buffer_size,
+                                           textUpdatedUserPassCallback, callbackToSettings, view_dispatcher_ref, this);
+#endif
+    }
     return false;
 }
 
@@ -153,25 +212,10 @@ void FlipperHTTPSettings::settingsItemSelected(uint32_t index)
     {
     case SettingsViewSSID:
     case SettingsViewPassword:
+    case SettingsViewUserName:
+    case SettingsViewUserPass:
         startTextInput(index);
         break;
-    case SettingsViewConnect:
-    {
-        FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
-        char loaded_ssid[64];
-        char loaded_pass[64];
-        if (!app->loadChar("wifi_ssid", loaded_ssid, sizeof(loaded_ssid)) ||
-            !app->loadChar("wifi_pass", loaded_pass, sizeof(loaded_pass)))
-        {
-            FURI_LOG_E(TAG, "WiFi credentials not set");
-            easy_flipper_dialog("No WiFi Credentials", "Please set your WiFi SSID\nand Password in Settings.");
-        }
-        else
-        {
-            app->sendWiFiCredentials(loaded_ssid, loaded_pass);
-        }
-    }
-    break;
     default:
         break;
     };
@@ -230,6 +274,20 @@ void FlipperHTTPSettings::textUpdated(uint32_t view)
         }
         app->saveChar("wifi_pass", text_input_buffer.get());
         break;
+    case SettingsViewUserName:
+        if (variable_item_user_name)
+        {
+            variable_item_set_current_value_text(variable_item_user_name, text_input_buffer.get());
+        }
+        app->saveChar("user_name", text_input_buffer.get());
+        break;
+    case SettingsViewUserPass:
+        if (variable_item_user_pass)
+        {
+            variable_item_set_current_value_text(variable_item_user_pass, text_input_buffer.get());
+        }
+        app->saveChar("user_pass", text_input_buffer.get());
+        break;
     default:
         break;
     }
@@ -251,4 +309,16 @@ void FlipperHTTPSettings::textUpdatedPassCallback(void *context)
 {
     FlipperHTTPSettings *settings = (FlipperHTTPSettings *)context;
     settings->textUpdated(SettingsViewPassword);
+}
+
+void FlipperHTTPSettings::textUpdatedUserNameCallback(void *context)
+{
+    FlipperHTTPSettings *settings = (FlipperHTTPSettings *)context;
+    settings->textUpdated(SettingsViewUserName);
+}
+
+void FlipperHTTPSettings::textUpdatedUserPassCallback(void *context)
+{
+    FlipperHTTPSettings *settings = (FlipperHTTPSettings *)context;
+    settings->textUpdated(SettingsViewUserPass);
 }

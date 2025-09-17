@@ -109,6 +109,29 @@ void FlipperHTTPApp::callbackSubmenuChoices(uint32_t index)
     switch (index)
     {
     case FlipperHTTPSubmenuRun:
+
+        // if the board is not connected, we can't use WiFi
+        if (!isBoardConnected())
+        {
+            easy_flipper_dialog("FlipperHTTP Error", "Ensure your WiFi Developer\nBoard or Pico W is connected\nand the latest FlipperHTTP\nfirmware is installed.");
+            return;
+        }
+
+        // if we don't have WiFi credentials, we can't connect to WiFi in case
+        // we are not connected to WiFi yet
+        if (!hasWiFiCredentials())
+        {
+            easy_flipper_dialog("No WiFi Credentials", "Please set your WiFi SSID\nand Password in Settings.");
+            return;
+        }
+
+        // if we don't have user credentials, we can't connect to the user account
+        if (!hasUserCredentials())
+        {
+            easy_flipper_dialog("No User Credentials", "Please set your Username\nand Password in Settings.");
+            return;
+        }
+
         if (!run)
         {
             run = std::make_unique<FlipperHTTPRun>(this);
@@ -154,6 +177,14 @@ void FlipperHTTPApp::callbackSubmenuChoices(uint32_t index)
         break;
     default:
         break;
+    }
+}
+
+void FlipperHTTPApp::clearHttpResponse()
+{
+    if (flipperHttp && flipperHttp->last_response)
+    {
+        memset(flipperHttp->last_response, 0, strlen(flipperHttp->last_response) + 1);
     }
 }
 
@@ -219,6 +250,26 @@ bool FlipperHTTPApp::httpRequestAsync(
     return true;
 }
 
+bool FlipperHTTPApp::hasWiFiCredentials()
+{
+    char ssid[64] = {0};
+    char password[64] = {0};
+    return loadChar("wifi_ssid", ssid, sizeof(ssid)) &&
+           loadChar("wifi_pass", password, sizeof(password)) &&
+           strlen(ssid) > 0 &&
+           strlen(password) > 0;
+}
+
+bool FlipperHTTPApp::hasUserCredentials()
+{
+    char username[64] = {0};
+    char password[64] = {0};
+    return loadChar("user_name", username, sizeof(username)) &&
+           loadChar("user_pass", password, sizeof(password)) &&
+           strlen(username) > 0 &&
+           strlen(password) > 0;
+}
+
 bool FlipperHTTPApp::isBoardConnected()
 {
     if (!flipperHttp)
@@ -233,7 +284,7 @@ bool FlipperHTTPApp::isBoardConnected()
         return false;
     }
 
-    furi_delay_ms(100);
+    furi_delay_ms(500);
 
     // Try to wait for pong response.
     uint32_t counter = 100;
@@ -376,6 +427,16 @@ bool FlipperHTTPApp::saveChar(const char *path_name, const char *value)
     storage_file_free(file);
     furi_record_close(RECORD_STORAGE);
     return true;
+}
+
+bool FlipperHTTPApp::sendHttpCommand(HTTPCommand command)
+{
+    if (!flipperHttp)
+    {
+        FURI_LOG_E(TAG, "FlipperHTTP is not initialized");
+        return false;
+    }
+    return flipper_http_send_command(flipperHttp, command);
 }
 
 bool FlipperHTTPApp::sendWiFiCredentials(const char *ssid, const char *password)

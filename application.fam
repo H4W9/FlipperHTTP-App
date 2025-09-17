@@ -1,6 +1,6 @@
 App(
     appid="flipper_http",
-    name="Hello World",
+    name="FlipperHTTP",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="flipper_http_main",
     stack_size=4 * 1024,
