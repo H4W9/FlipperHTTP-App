@@ -823,7 +823,7 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
                 loadingStarted = false;
                 userRequest(RequestTypeScan);
                 break;
-            case AppViewSavedAPs: // 3
+            case 3: // Saved APs (menu index 3)
                 if (!playlist)
                 {
                     playlist = static_cast<WiFiPlaylist *>(malloc(sizeof(WiFiPlaylist)));
@@ -837,7 +837,7 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
                 savedAPsStatus = RequestStatusNotStarted;
                 currentView = AppViewSavedAPs;
                 break;
-            case AppViewCommands: // 4
+            case 4: // Commands (menu index 4)
                 commandIndex = 0;
                 commandStatus = RequestStatusNotStarted;
                 currentView = AppViewCommands;
