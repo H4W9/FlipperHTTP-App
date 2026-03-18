@@ -117,21 +117,6 @@ void FlipperHTTPApp::callbackSubmenuChoices(uint32_t index)
             return;
         }
 
-        // if we don't have WiFi credentials, we can't connect to WiFi in case
-        // we are not connected to WiFi yet
-        if (!hasWiFiCredentials())
-        {
-            easy_flipper_dialog("No WiFi Credentials", "Please set your WiFi SSID\nand Password in Settings.");
-            return;
-        }
-
-        // if we don't have user credentials, we can't connect to the user account
-        if (!hasUserCredentials())
-        {
-            easy_flipper_dialog("No User Credentials", "Please set your Username\nand Password in Settings.");
-            return;
-        }
-
         if (!run)
         {
             run = std::make_unique<FlipperHTTPRun>(this);
@@ -173,6 +158,7 @@ void FlipperHTTPApp::callbackSubmenuChoices(uint32_t index)
         {
             settings = std::make_unique<FlipperHTTPSettings>(&viewDispatcher, this);
         }
+        settings->refresh();
         view_dispatcher_switch_to_view(viewDispatcher, FlipperHTTPViewSettings);
         break;
     default:
@@ -437,6 +423,21 @@ bool FlipperHTTPApp::sendHttpCommand(HTTPCommand command)
         return false;
     }
     return flipper_http_send_command(flipperHttp, command);
+}
+
+bool FlipperHTTPApp::sendRawData(const char *data)
+{
+    if (!flipperHttp)
+    {
+        FURI_LOG_E(TAG, "FlipperHTTP is not initialized");
+        return false;
+    }
+    if (!data)
+    {
+        FURI_LOG_E(TAG, "sendRawData: data is NULL");
+        return false;
+    }
+    return flipper_http_send_data(flipperHttp, data);
 }
 
 bool FlipperHTTPApp::sendWiFiCredentials(const char *ssid, const char *password)

@@ -47,4 +47,5 @@ public:
     ~FlipperHTTPSettings();
 
     void settingsItemSelected(uint32_t index); // handle settings item selection
+    void refresh();                            // re-read all values from storage and update the display
 };

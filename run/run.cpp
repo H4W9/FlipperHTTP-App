@@ -1,16 +1,31 @@
 #include "run/run.hpp"
 #include "app.hpp"
 
-FlipperHTTPRun::FlipperHTTPRun(void *appContext) : appContext(appContext), connectionType(ConnectionTypeConnection), connectStatus(RequestStatusNotStarted),
-                                                   currentMenuIndex(0), currentSSIDIndex(0), currentView(AppViewMainMenu), inputHeld(false), keyboard(nullptr),
-                                                   lastInput(InputKeyMAX), loading(nullptr), saveWiFiStatus(RequestStatusNotStarted),
-                                                   scanStatus(RequestStatusNotStarted), shouldDebounce(false), shouldReturnToMenu(false), statusStatus(RequestStatusNotStarted)
+
+
+FlipperHTTPRun::FlipperHTTPRun(void *appContext)
+    : appContext(appContext), connectInfoStatus(false), connectionType(ConnectionTypeConnection),
+      connectStatus(RequestStatusNotStarted), currentMenuIndex(0), currentSSIDIndex(0),
+      currentView(AppViewMainMenu), inputHeld(false), keyboard(nullptr),
+      keyboardFlow(KeyboardFlowScanPassword), keyboardSkipEvents(0), lastInput(InputKeyMAX),
+      loading(nullptr), loadingStarted(false),
+      playlist(nullptr), savedAPIndex(0), savedAPsStatus(RequestStatusNotStarted),
+      savedAPDetailStatus(RequestStatusNotStarted), commandIndex(0),
+      commandStatus(RequestStatusNotStarted), commandResponseScrollOffset(0), commandResponseMaxScroll(0),
+      saveWiFiStatus(RequestStatusNotStarted), scanStatus(RequestStatusNotStarted),
+      shouldDebounce(false), shouldReturnToMenu(false), statusStatus(RequestStatusNotStarted)
 {
+    memset(pendingSSID, 0, sizeof(pendingSSID));
 }
 
 FlipperHTTPRun::~FlipperHTTPRun()
 {
-    // nothing to do
+    // nothing to do (playlist is freed below if allocated)
+    if (playlist)
+    {
+        free(playlist);
+        playlist = nullptr;
+    }
 }
 
 void FlipperHTTPRun::debounceInput()
@@ -34,7 +49,6 @@ void FlipperHTTPRun::drawConnectView(Canvas *canvas)
 {
     canvas_clear(canvas);
     canvas_set_font(canvas, FontPrimary);
-    static bool loadingStarted = false;
     switch (connectStatus)
     {
     case RequestStatusWaiting:
@@ -113,8 +127,8 @@ void FlipperHTTPRun::drawConnectView(Canvas *canvas)
 
 void FlipperHTTPRun::drawMainMenuView(Canvas *canvas)
 {
-    const char *menuItems[] = {"Status", "Connect", "Scan"};
-    drawMenu(canvas, (uint8_t)currentMenuIndex, menuItems, 3);
+    const char *menuItems[] = {"Status", "Connect", "Scan", "Saved APs", "Commands"};
+    drawMenu(canvas, (uint8_t)currentMenuIndex, menuItems, 5);
 }
 
 void FlipperHTTPRun::drawMenu(Canvas *canvas, uint8_t selectedIndex, const char **menuItems, uint8_t menuCount)
@@ -315,7 +329,6 @@ void FlipperHTTPRun::drawSaveWiFiView(Canvas *canvas)
 {
     canvas_clear(canvas);
     canvas_set_font(canvas, FontPrimary);
-    static bool loadingStarted = false;
     switch (saveWiFiStatus)
     {
     case RequestStatusWaiting:
@@ -374,6 +387,7 @@ void FlipperHTTPRun::drawSaveWiFiView(Canvas *canvas)
                     // switch to connect
                     currentView = AppViewConnect;
                     connectStatus = RequestStatusWaiting;
+                    loadingStarted = false;
                     userRequest(RequestTypeConnect);
                 }
                 else
@@ -406,7 +420,6 @@ void FlipperHTTPRun::drawScanView(Canvas *canvas)
 {
     canvas_clear(canvas);
     canvas_set_font(canvas, FontPrimary);
-    static bool loadingStarted = false;
     switch (scanStatus)
     {
     case RequestStatusWaiting:
@@ -527,7 +540,6 @@ void FlipperHTTPRun::drawStatusView(Canvas *canvas)
     */
     canvas_clear(canvas);
     canvas_set_font(canvas, FontPrimary);
-    static bool loadingStarted = false;
 
     switch (statusStatus)
     {
@@ -742,6 +754,15 @@ void FlipperHTTPRun::updateDraw(Canvas *canvas)
     case AppViewSaveWiFi:
         drawSaveWiFiView(canvas);
         break;
+    case AppViewSavedAPs:
+        drawSavedAPsView(canvas);
+        break;
+    case AppViewSavedAPDetail:
+        drawSavedAPDetailView(canvas);
+        break;
+    case AppViewCommands:
+        drawCommandsView(canvas);
+        break;
     default:
         break;
     };
@@ -757,18 +778,12 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
         switch (lastInput)
         {
         case InputKeyRight:
-            if (currentMenuIndex < 2)
-            {
-                currentMenuIndex++;
-                shouldDebounce = true;
-            }
+            currentMenuIndex = (currentMenuIndex < 4) ? currentMenuIndex + 1 : 0; // 5 items: Status/Connect/Scan/SavedAPs/Commands
+            shouldDebounce = true;
             break;
         case InputKeyLeft:
-            if (currentMenuIndex > 0)
-            {
-                currentMenuIndex--;
-                shouldDebounce = true;
-            }
+            currentMenuIndex = (currentMenuIndex > 0) ? currentMenuIndex - 1 : 4;
+            shouldDebounce = true;
             break;
         case InputKeyBack:
             shouldDebounce = true;
@@ -792,18 +807,40 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
                 currentView = AppViewStatus;
                 connectionType = ConnectionTypeConnection;
                 statusStatus = RequestStatusWaiting;
+                loadingStarted = false;
                 userRequest(RequestTypeStatusConnection);
                 break;
             case AppViewConnect:
                 currentView = AppViewSaveWiFi;
                 saveWiFiStatus = RequestStatusWaiting;
+                loadingStarted = false;
                 userRequest(RequestTypeSaveWiFi);
                 break;
             case AppViewScan:
                 currentView = AppViewScan;
                 currentSSIDIndex = 0;
                 scanStatus = RequestStatusWaiting;
+                loadingStarted = false;
                 userRequest(RequestTypeScan);
+                break;
+            case AppViewSavedAPs: // 3
+                if (!playlist)
+                {
+                    playlist = static_cast<WiFiPlaylist *>(malloc(sizeof(WiFiPlaylist)));
+                    if (playlist)
+                    {
+                        playlist->count = 0;
+                        saved_aps_load(playlist);
+                    }
+                }
+                savedAPIndex = 0;
+                savedAPsStatus = RequestStatusNotStarted;
+                currentView = AppViewSavedAPs;
+                break;
+            case AppViewCommands: // 4
+                commandIndex = 0;
+                commandStatus = RequestStatusNotStarted;
+                currentView = AppViewCommands;
                 break;
             default:
                 break;
@@ -817,30 +854,67 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
         {
             if (keyboard)
             {
-                if (keyboard->handleInput(lastInput))
+                // Long Back always exits; short Back exits when buffer is empty
+                bool back_exits = (event->key == InputKeyBack) &&
+                                  (event->type == InputTypeLong ||
+                                   (event->type == InputTypeShort && keyboard->getTextLength() == 0));
+                if (back_exits)
+                {
+                    // Return to the SSID list so the user doesn't lose their scan results
+                    keyboard.reset();
+                    scanStatus = RequestStatusSuccess;
+                    shouldDebounce = true;
+                }
+                else if (keyboardSkipEvents > 0) { keyboardSkipEvents--; } else if (keyboard->handleInput(event))
                 {
                     FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
                     furi_check(app);
-                    app->saveChar("wifi_ssid", ssidList[currentSSIDIndex].c_str());
-                    app->saveChar("wifi_pass", keyboard->getText());
+                    const char *ssid = ssidList[currentSSIDIndex].c_str();
+                    const char *pass = keyboard->getText();
+                    app->saveChar("wifi_ssid", ssid);
+                    app->saveChar("wifi_pass", pass);
+                    // Also persist to the Saved APs list if not already present
+                    if (!playlist)
+                    {
+                        playlist = static_cast<WiFiPlaylist *>(malloc(sizeof(WiFiPlaylist)));
+                        if (playlist)
+                    {
+                        playlist->count = 0;
+                        saved_aps_load(playlist);
+                    }
+                    }
+                    if (playlist && playlist->count < MAX_SAVED_APS)
+                    {
+                        bool already_saved = false;
+                        for (size_t i = 0; i < playlist->count; i++)
+                        {
+                            if (strncmp(playlist->ssids[i], ssid, MAX_AP_SSID_LENGTH) == 0)
+                            {
+                                already_saved = true;
+                                break;
+                            }
+                        }
+                        if (!already_saved)
+                        {
+                            snprintf(playlist->ssids[playlist->count], MAX_AP_SSID_LENGTH, "%s", ssid);
+                            snprintf(playlist->passwords[playlist->count], MAX_AP_SSID_LENGTH, "%s", pass);
+                            playlist->count++;
+                            saved_aps_save(playlist);
+                        }
+                    }
                     scanStatus = RequestStatusWaiting;
                     saveWiFiStatus = RequestStatusWaiting;
+                    loadingStarted = false;
                     userRequest(RequestTypeSaveWiFi);
                     currentView = AppViewSaveWiFi;
                     currentMenuIndex = 1; // move to connect
                     currentSSIDIndex = 0;
                     keyboard.reset();
                 }
-                if (lastInput != InputKeyMAX)
+                else if (lastInput != InputKeyMAX)
                 {
                     shouldDebounce = true;
                 }
-            }
-            if (lastInput == InputKeyBack)
-            {
-                scanStatus = RequestStatusWaiting;
-                shouldDebounce = true;
-                currentView = AppViewMainMenu;
             }
         }
         else
@@ -848,18 +922,12 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
             switch (lastInput)
             {
             case InputKeyRight:
-                if (currentSSIDIndex < ssidList.size() - 1)
-                {
-                    currentSSIDIndex++;
-                    shouldDebounce = true;
-                }
+                currentSSIDIndex = (currentSSIDIndex < ssidList.size() - 1) ? currentSSIDIndex + 1 : 0;
+                shouldDebounce = true;
                 break;
             case InputKeyLeft:
-                if (currentSSIDIndex > 0)
-                {
-                    currentSSIDIndex--;
-                    shouldDebounce = true;
-                }
+                currentSSIDIndex = (currentSSIDIndex > 0) ? currentSSIDIndex - 1 : ssidList.size() - 1;
+                shouldDebounce = true;
                 break;
             case InputKeyBack:
                 shouldDebounce = true;
@@ -876,6 +944,7 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
                     keyboard->setText(""); // Start with empty text
                 }
                 scanStatus = RequestStatusKeyboard;
+                keyboardSkipEvents = 2;
                 shouldDebounce = true;
                 break;
             default:
@@ -883,6 +952,375 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
             }
         }
         break;
+    // ── Saved APs list ────────────────────────────────────────────────────────
+    case AppViewSavedAPs:
+        if (savedAPsStatus == RequestStatusKeyboard)
+        {
+            if (keyboard)
+            {
+                // Long Back always exits; short Back exits when buffer is empty
+                bool back_exits = (event->key == InputKeyBack) &&
+                                  (event->type == InputTypeLong ||
+                                   (event->type == InputTypeShort && keyboard->getTextLength() == 0));
+                if (back_exits)
+                {
+                    keyboard.reset();
+                    savedAPsStatus = RequestStatusNotStarted;
+                    shouldDebounce = true;
+                }
+                else if (keyboardSkipEvents > 0) { keyboardSkipEvents--; } else if (keyboard->handleInput(event))
+                {
+                    if (keyboardFlow == KeyboardFlowSavedAPAddSSID)
+                    {
+                        // Store the SSID and move to the password step
+                        strncpy(pendingSSID, keyboard->getText(), sizeof(pendingSSID) - 1);
+                        pendingSSID[sizeof(pendingSSID) - 1] = '\0';
+                        keyboard->clearText();
+                        keyboard->setText("");
+                        keyboardFlow = KeyboardFlowSavedAPAddPassword;
+                    }
+                    else // KeyboardFlowSavedAPAddPassword
+                    {
+                        // Add the new entry to the playlist
+                        if (playlist && playlist->count < MAX_SAVED_APS)
+                        {
+                            snprintf(playlist->ssids[playlist->count], MAX_AP_SSID_LENGTH, "%s", pendingSSID);
+                            snprintf(playlist->passwords[playlist->count], MAX_AP_SSID_LENGTH, "%s", keyboard->getText());
+                            playlist->count++;
+                            saved_aps_save(playlist);
+                            // Land on the newly added entry (index 0 = [Add Network], so +1)
+                            savedAPIndex = playlist->count;
+                        }
+                        keyboard.reset();
+                        savedAPsStatus = RequestStatusNotStarted;
+                    }
+                }
+                else if (lastInput != InputKeyMAX)
+                {
+                    shouldDebounce = true;
+                }
+            }
+            break; // consume all input while keyboard is open
+        }
+        // Normal list navigation
+        {
+            const size_t total = playlist ? playlist->count + 1 : 1;
+            switch (lastInput)
+            {
+            case InputKeyRight:
+                savedAPIndex = (savedAPIndex < total - 1) ? savedAPIndex + 1 : 0;
+                shouldDebounce = true;
+                break;
+            case InputKeyLeft:
+                savedAPIndex = (savedAPIndex > 0) ? savedAPIndex - 1 : total - 1;
+                shouldDebounce = true;
+                break;
+            case InputKeyBack:
+                shouldDebounce = true;
+                currentView = AppViewMainMenu;
+                break;
+            case InputKeyOk:
+                shouldDebounce = true;
+                if (savedAPIndex == 0)
+                {
+                    // [Add Network] — open keyboard for SSID
+                    if (!keyboard)
+                    {
+                        keyboard = std::make_unique<Keyboard>();
+                    }
+                    if (keyboard)
+                    {
+                        keyboard->clearText();
+                        keyboard->setText("");
+                    }
+                    keyboardFlow = KeyboardFlowSavedAPAddSSID;
+                    savedAPsStatus = RequestStatusKeyboard;
+                    keyboardSkipEvents = 2;
+                }
+                else
+                {
+                    // Open the detail view for this AP
+                    savedAPDetailStatus = RequestStatusNotStarted;
+                    currentView = AppViewSavedAPDetail;
+                }
+                break;
+            default:
+                break;
+            }
+        }
+        break;
+
+    // ── Saved AP detail ───────────────────────────────────────────────────────
+    case AppViewSavedAPDetail:
+        if (savedAPDetailStatus == RequestStatusKeyboard)
+        {
+            if (keyboard)
+            {
+                // Long Back always exits; short Back exits when buffer is empty
+                bool back_exits = (event->key == InputKeyBack) &&
+                                  (event->type == InputTypeLong ||
+                                   (event->type == InputTypeShort && keyboard->getTextLength() == 0));
+                if (back_exits)
+                {
+                    keyboard.reset();
+                    savedAPDetailStatus = RequestStatusNotStarted;
+                    shouldDebounce = true;
+                }
+                else if (keyboardSkipEvents > 0) { keyboardSkipEvents--; } else if (keyboard->handleInput(event))
+                {
+                    // Update password in playlist
+                    const size_t idx = savedAPIndex - 1;
+                    if (playlist && idx < playlist->count)
+                    {
+                        snprintf(playlist->passwords[idx], MAX_AP_SSID_LENGTH, "%s", keyboard->getText());
+                        saved_aps_save(playlist);
+                    }
+                    keyboard.reset();
+                    savedAPDetailStatus = RequestStatusNotStarted;
+                }
+                else if (lastInput != InputKeyMAX)
+                {
+                    shouldDebounce = true;
+                }
+            }
+            break;
+        }
+        if (savedAPDetailStatus == RequestStatusWaiting ||
+            savedAPDetailStatus == RequestStatusSuccess ||
+            savedAPDetailStatus == RequestStatusRequestError)
+        {
+            if (lastInput == InputKeyBack)
+            {
+                shouldDebounce = true;
+                savedAPDetailStatus = RequestStatusNotStarted;
+                currentView = AppViewSavedAPs;
+            }
+            break;
+        }
+        // Normal detail navigation
+        {
+            const size_t idx = savedAPIndex - 1;
+            switch (lastInput)
+            {
+            case InputKeyOk: // Set WiFi on the board
+                shouldDebounce = true;
+                if (playlist && idx < playlist->count)
+                {
+                    FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+                    furi_check(app);
+                    app->saveChar("wifi_ssid", playlist->ssids[idx]);
+                    app->saveChar("wifi_pass", playlist->passwords[idx]);
+                    app->clearHttpResponse();
+                    bool sent = app->sendWiFiCredentials(playlist->ssids[idx], playlist->passwords[idx]);
+                    if (sent)
+                    {
+                        loadingStarted = false;
+                    }
+                    savedAPDetailStatus = sent ? RequestStatusWaiting : RequestStatusRequestError;
+                }
+                break;
+            case InputKeyRight: // Edit password
+                shouldDebounce = true;
+                if (playlist && idx < playlist->count)
+                {
+                    if (!keyboard)
+                    {
+                        keyboard = std::make_unique<Keyboard>();
+                    }
+                    if (keyboard)
+                    {
+                        keyboard->clearText();
+                        keyboard->setText(playlist->passwords[idx]);
+                    }
+                    savedAPDetailStatus = RequestStatusKeyboard;
+                    keyboardSkipEvents = 2;
+                }
+                break;
+            case InputKeyLeft: // Delete AP
+                shouldDebounce = true;
+                if (playlist && idx < playlist->count)
+                {
+                    for (size_t i = idx; i < playlist->count - 1; i++)
+                    {
+                        strncpy(playlist->ssids[i], playlist->ssids[i + 1], MAX_AP_SSID_LENGTH);
+                        strncpy(playlist->passwords[i], playlist->passwords[i + 1], MAX_AP_SSID_LENGTH);
+                    }
+                    playlist->count--;
+                    saved_aps_save(playlist);
+                    savedAPIndex = (savedAPIndex > 0) ? savedAPIndex - 1 : 0;
+                    currentView = AppViewSavedAPs;
+                }
+                break;
+            case InputKeyBack:
+                shouldDebounce = true;
+                currentView = AppViewSavedAPs;
+                break;
+            default:
+                break;
+            }
+        }
+        break;
+
+    // ── Commands ──────────────────────────────────────────────────────────────
+    case AppViewCommands:
+        if (commandStatus == RequestStatusKeyboard)
+        {
+            if (keyboard)
+            {
+                // Long Back always exits; short Back exits when buffer is empty
+                bool back_exits = (event->key == InputKeyBack) &&
+                                  (event->type == InputTypeLong ||
+                                   (event->type == InputTypeShort && keyboard->getTextLength() == 0));
+                if (back_exits)
+                {
+                    keyboard.reset();
+                    commandStatus = RequestStatusNotStarted;
+                    shouldDebounce = true;
+                }
+                else if (keyboardSkipEvents > 0) { keyboardSkipEvents--; } else if (keyboard->handleInput(event))
+                {
+                    const char *cmd_text = keyboard->getText();
+                    keyboard.reset();
+                    if (cmd_text && strlen(cmd_text) > 0)
+                    {
+                        FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+                        furi_check(app);
+                        app->clearHttpResponse();
+                        if (app->sendRawData(cmd_text))
+                        {
+                            loadingStarted = false;
+                            commandStatus = RequestStatusWaiting;
+                        }
+                        else
+                        {
+                            commandResponse = "Failed to send command.";
+                            commandStatus = RequestStatusRequestError;
+                        }
+                    }
+                    else
+                    {
+                        commandStatus = RequestStatusNotStarted;
+                    }
+                }
+                else if (lastInput != InputKeyMAX)
+                {
+                    shouldDebounce = true;
+                }
+            }
+            break;
+        }
+        if (commandStatus == RequestStatusWaiting ||
+            commandStatus == RequestStatusSuccess ||
+            commandStatus == RequestStatusRequestError)
+        {
+            if (lastInput == InputKeyBack)
+            {
+                shouldDebounce = true;
+                commandStatus = RequestStatusNotStarted;
+                commandResponse.clear();
+                commandResponseScrollOffset = 0;
+                commandResponseMaxScroll = 0;
+            }
+            else if (lastInput == InputKeyDown)
+            {
+                if (commandResponseScrollOffset < commandResponseMaxScroll)
+                    commandResponseScrollOffset++;
+                shouldDebounce = true;
+            }
+            else if (lastInput == InputKeyUp)
+            {
+                if (commandResponseScrollOffset > 0)
+                    commandResponseScrollOffset--;
+                shouldDebounce = true;
+            }
+            break;
+        }
+        // Normal command list navigation
+        switch (lastInput)
+        {
+        case InputKeyRight:
+            commandIndex = (commandIndex < 14) ? commandIndex + 1 : 0; // 15 commands (0–14)
+            shouldDebounce = true;
+            break;
+        case InputKeyLeft:
+            commandIndex = (commandIndex > 0) ? commandIndex - 1 : 14;
+            shouldDebounce = true;
+            break;
+        case InputKeyOk:
+            shouldDebounce = true;
+            if (commandIndex == 0)
+            {
+                // [CUSTOM] — open keyboard for freeform input
+                if (!keyboard)
+                {
+                    keyboard = std::make_unique<Keyboard>();
+                }
+                if (keyboard)
+                {
+                    keyboard->clearText();
+                    keyboard->setText("");
+                }
+                commandStatus = RequestStatusKeyboard;
+                keyboardSkipEvents = 2;
+            }
+            else
+            {
+                // Dispatch the selected built-in command
+                FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+                furi_check(app);
+                app->clearHttpResponse();
+                bool sent = false;
+                bool has_response = true;
+                switch (commandIndex)
+                {
+                case 1: sent = app->sendHttpCommand(HTTP_CMD_PING); break;
+                case 2: sent = app->sendRawData("[BOARD/NAME]"); break; // firmware v2.1.4, raw string
+                case 3: sent = app->sendHttpCommand(HTTP_CMD_VERSION); break;
+                case 4: sent = app->sendHttpCommand(HTTP_CMD_LIST_COMMANDS); break;
+                case 5: sent = app->sendHttpCommand(HTTP_CMD_STATUS); break;
+                case 6: sent = app->sendHttpCommand(HTTP_CMD_SSID); break;
+                case 7: sent = app->sendHttpCommand(HTTP_CMD_WIFI_LIST); break;
+                case 8: sent = app->sendHttpCommand(HTTP_CMD_IP_ADDRESS); break;
+                case 9: sent = app->sendHttpCommand(HTTP_CMD_IP_WIFI); break;
+                case 10: sent = app->sendHttpCommand(HTTP_CMD_WIFI_CONNECT); break;
+                case 11: sent = app->sendHttpCommand(HTTP_CMD_WIFI_DISCONNECT); break;
+                case 12: sent = app->sendHttpCommand(HTTP_CMD_LED_ON); has_response = false; break;  // no response expected
+                case 13: sent = app->sendHttpCommand(HTTP_CMD_LED_OFF); has_response = false; break; // no response expected
+                case 14: sent = app->sendHttpCommand(HTTP_CMD_REBOOT); has_response = false; break;  // no response expected
+                default: break;
+                }
+                if (!sent)
+                {
+                    commandResponse = "Failed to send command.";
+                    commandStatus = RequestStatusRequestError;
+                    commandResponseScrollOffset = 0;
+                    commandResponseMaxScroll = 0;
+                }
+                else if (!has_response)
+                {
+                    // Commands like REBOOT, LED/ON, LED/OFF don't send a response back
+                    commandResponse = "Command sent.";
+                    commandStatus = RequestStatusSuccess;
+                    commandResponseScrollOffset = 0;
+                    commandResponseMaxScroll = 0;
+                }
+                else
+                {
+                    loadingStarted = false;
+                    commandStatus = RequestStatusWaiting;
+                }
+            }
+            break;
+        case InputKeyBack:
+            shouldDebounce = true;
+            currentView = AppViewMainMenu;
+            break;
+        default:
+            break;
+        }
+        break;
+
+    // ── All other views (Status, Connect, SaveWiFi) ───────────────────────────
     default:
         if (lastInput == InputKeyBack)
         {
@@ -896,6 +1334,292 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
         break;
     };
 }
+
+
+// ─────────────────────────────────────────────
+//  Draw — Saved APs views
+// ─────────────────────────────────────────────
+
+void FlipperHTTPRun::drawSavedAPsView(Canvas *canvas)
+{
+    canvas_clear(canvas);
+
+    // Keyboard is active — draw it instead of the list
+    if (savedAPsStatus == RequestStatusKeyboard)
+    {
+        if (keyboard)
+        {
+            const char *header = (keyboardFlow == KeyboardFlowSavedAPAddSSID)
+                                     ? "Enter SSID:"
+                                     : "Enter password:";
+            keyboard->draw(canvas, header);
+        }
+        return;
+    }
+
+    // Build a label array: [Add Network] followed by saved SSIDs
+    const char *items[MAX_SAVED_APS + 1];
+    size_t total = 1;
+    items[0] = "[Add Network]";
+    if (playlist)
+    {
+        for (size_t i = 0; i < playlist->count; i++)
+        {
+            items[i + 1] = playlist->ssids[i];
+        }
+        total = playlist->count + 1;
+    }
+    drawMenu(canvas, (uint8_t)savedAPIndex, items, (uint8_t)total);
+}
+
+void FlipperHTTPRun::drawSavedAPDetailView(Canvas *canvas)
+{
+    canvas_clear(canvas);
+
+    // Guard: need a valid playlist entry (index 0 is [Add Network])
+    if (!playlist || savedAPIndex == 0 || (savedAPIndex - 1) >= playlist->count)
+    {
+        return;
+    }
+
+    const size_t idx = savedAPIndex - 1;
+
+    // Keyboard active — editing password
+    if (savedAPDetailStatus == RequestStatusKeyboard)
+    {
+        if (keyboard)
+        {
+            keyboard->draw(canvas, "Edit password:");
+        }
+        return;
+    }
+
+    canvas_set_font(canvas, FontPrimary);
+
+    // Waiting for board response to a Set command
+    if (savedAPDetailStatus == RequestStatusWaiting)
+    {
+        if (!loadingStarted)
+        {
+            if (!loading)
+            {
+                loading = std::make_unique<Loading>(canvas);
+            }
+            loadingStarted = true;
+            if (loading)
+            {
+                loading->setText("Setting WiFi...");
+            }
+        }
+        if (!httpRequestIsFinished())
+        {
+            if (loading)
+            {
+                loading->animate();
+            }
+            return;
+        }
+        if (loading)
+        {
+            loading->stop();
+        }
+        loadingStarted = false;
+        FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+        const char *response = app->getHttpResponse();
+        savedAPDetailStatus = (response && strstr(response, "[SUCCESS]") != nullptr)
+                                  ? RequestStatusSuccess
+                                  : RequestStatusRequestError;
+        return;
+    }
+
+    if (savedAPDetailStatus == RequestStatusSuccess)
+    {
+        canvas_draw_str(canvas, 0, 10, playlist->ssids[idx]);
+        canvas_set_font(canvas, FontSecondary);
+        canvas_draw_str(canvas, 0, 26, "WiFi credentials sent.");
+        canvas_draw_str(canvas, 0, 36, "All FlipperHTTP apps");
+        canvas_draw_str(canvas, 0, 46, "will use this network.");
+        canvas_draw_str(canvas, 0, 60, "Press BACK to return.");
+        return;
+    }
+
+    if (savedAPDetailStatus == RequestStatusRequestError)
+    {
+        canvas_set_font(canvas, FontSecondary);
+        canvas_draw_str(canvas, 0, 20, "Failed to set WiFi.");
+        canvas_draw_str(canvas, 0, 30, "Check board connection.");
+        canvas_draw_str(canvas, 0, 60, "Press BACK to return.");
+        return;
+    }
+
+    // Normal state — show AP info and button hints
+    canvas_draw_str(canvas, 0, 10, playlist->ssids[idx]);
+    canvas_set_font(canvas, FontSecondary);
+    char pass_line[80];
+    snprintf(pass_line, sizeof(pass_line), "Pass: %s", playlist->passwords[idx]);
+    canvas_draw_str(canvas, 0, 22, pass_line);
+    canvas_draw_str(canvas, 0, 63, "<Del [Back] [OK]=Set >Edit");
+}
+
+// ─────────────────────────────────────────────
+//  Draw — Commands view
+// ─────────────────────────────────────────────
+
+void FlipperHTTPRun::drawCommandsView(Canvas *canvas)
+{
+    canvas_clear(canvas);
+    canvas_set_font(canvas, FontPrimary);
+
+    // Keyboard active — entering a custom command
+    if (commandStatus == RequestStatusKeyboard)
+    {
+        if (keyboard)
+        {
+            keyboard->draw(canvas, "Enter command:");
+        }
+        return;
+    }
+
+    // Waiting for board response
+    if (commandStatus == RequestStatusWaiting)
+    {
+        if (!loadingStarted)
+        {
+            if (!loading)
+            {
+                loading = std::make_unique<Loading>(canvas);
+            }
+            loadingStarted = true;
+            if (loading)
+            {
+                loading->setText("Sending...");
+            }
+        }
+        if (!httpRequestIsFinished())
+        {
+            if (loading)
+            {
+                loading->animate();
+            }
+            return;
+        }
+        if (loading)
+        {
+            loading->stop();
+        }
+        loadingStarted = false;
+        FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+        const char *response = app->getHttpResponse();
+        commandResponse = (response && strlen(response) > 0) ? response : "No response.";
+        commandStatus = RequestStatusSuccess;
+        commandResponseScrollOffset = 0;
+        commandResponseMaxScroll = 0;
+        return;
+    }
+
+    // Show the response (success or error)
+    if (commandStatus == RequestStatusSuccess || commandStatus == RequestStatusRequestError)
+    {
+        canvas_draw_str(canvas, 0, 10, "Response:");
+        canvas_set_font(canvas, FontSecondary);
+
+        // Split the full response into wrapped lines of ~21 chars (FontSecondary, 128px wide)
+        // then render a window of 4 lines starting at commandResponseScrollOffset.
+        const int CHARS_PER_LINE = 21;
+        const int LINES_VISIBLE = 4;
+        const int LINE_H = 10;
+
+        // Build all lines by word-wrapping the response
+        std::vector<std::string> lines;
+        const std::string &resp = commandResponse;
+        size_t pos = 0;
+        while (pos < resp.size())
+        {
+            size_t end = pos + CHARS_PER_LINE;
+            if (end >= resp.size())
+            {
+                lines.push_back(resp.substr(pos));
+                break;
+            }
+            // Look for a space to break on within the window
+            size_t break_at = resp.rfind(' ', end);
+            if (break_at == std::string::npos || break_at <= pos)
+            {
+                break_at = end; // no space — hard break
+            }
+            lines.push_back(resp.substr(pos, break_at - pos));
+            pos = break_at + (resp[break_at] == ' ' ? 1 : 0);
+        }
+
+        // Clamp scroll offset
+        size_t max_scroll = lines.size() > (size_t)LINES_VISIBLE
+                                ? lines.size() - (size_t)LINES_VISIBLE
+                                : 0;
+        commandResponseMaxScroll = max_scroll; // keep input handler in sync
+        if (commandResponseScrollOffset > max_scroll)
+        {
+            commandResponseScrollOffset = max_scroll;
+        }
+
+        // Render LINES_VISIBLE lines starting at the scroll offset
+        for (int i = 0; i < LINES_VISIBLE; i++)
+        {
+            size_t line_idx = commandResponseScrollOffset + (size_t)i;
+            if (line_idx >= lines.size()) break;
+            canvas_draw_str(canvas, 0, 22 + i * LINE_H, lines[line_idx].c_str());
+        }
+
+        // Up arrow — filled triangle, tip at top, drawn with horizontal scanlines
+        if (commandResponseScrollOffset > 0)
+        {
+            canvas_draw_dot(canvas, 124, 22);
+            canvas_draw_line(canvas, 123, 23, 125, 23);
+            canvas_draw_line(canvas, 122, 24, 126, 24);
+            canvas_draw_line(canvas, 121, 25, 127, 25);
+        }
+
+        // Down arrow — exact mirror: same scanlines, y-coordinates flipped
+        if (commandResponseScrollOffset < max_scroll)
+        {
+            canvas_draw_line(canvas, 121, 50, 127, 50);
+            canvas_draw_line(canvas, 122, 51, 126, 51);
+            canvas_draw_line(canvas, 123, 52, 125, 52);
+            canvas_draw_dot(canvas, 124, 53);
+        }
+
+        if (max_scroll > 0)
+        {
+            canvas_draw_str(canvas, 0, 63, "Up/Dn scroll Back=return");
+        }
+        else
+        {
+            canvas_draw_str(canvas, 0, 63, "Press Back to return.");
+        }
+        return;
+    }
+
+    // Normal state — show the command list
+    const char *labels[] = {
+        "[CUSTOM]",
+        "PING",
+        "BOARD/NAME",
+        "VERSION",
+        "LIST",
+        "WIFI/STATUS",
+        "WIFI/SSID",
+        "WIFI/LIST",
+        "IP/ADDRESS",
+        "WIFI/IP",
+        "WIFI/CONNECT",
+        "WIFI/DISCONNECT",
+        "LED/ON",
+        "LED/OFF",
+        "REBOOT",
+    };
+    const uint8_t label_count = sizeof(labels) / sizeof(labels[0]);
+    drawMenu(canvas, (uint8_t)commandIndex, labels, label_count);
+}
+
 
 void FlipperHTTPRun::userRequest(RequestType requestType)
 {

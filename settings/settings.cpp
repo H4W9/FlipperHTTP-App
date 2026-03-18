@@ -206,6 +206,32 @@ bool FlipperHTTPSettings::initTextInput(uint32_t view)
     return false;
 }
 
+void FlipperHTTPSettings::refresh()
+{
+    FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+    char loaded[128];
+
+    if (app->loadChar("wifi_ssid", loaded, sizeof(loaded)))
+        variable_item_set_current_value_text(variable_item_wifi_ssid, loaded);
+    else
+        variable_item_set_current_value_text(variable_item_wifi_ssid, "");
+
+    if (app->loadChar("wifi_pass", loaded, sizeof(loaded)))
+        variable_item_set_current_value_text(variable_item_wifi_pass, "*****");
+    else
+        variable_item_set_current_value_text(variable_item_wifi_pass, "");
+
+    if (app->loadChar("user_name", loaded, sizeof(loaded)))
+        variable_item_set_current_value_text(variable_item_user_name, loaded);
+    else
+        variable_item_set_current_value_text(variable_item_user_name, "");
+
+    if (app->loadChar("user_pass", loaded, sizeof(loaded)))
+        variable_item_set_current_value_text(variable_item_user_pass, "*****");
+    else
+        variable_item_set_current_value_text(variable_item_user_pass, "");
+}
+
 void FlipperHTTPSettings::settingsItemSelected(uint32_t index)
 {
     switch (index)

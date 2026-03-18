@@ -1,16 +1,19 @@
-#include "keyboard.hpp"
+#include "keyboard/keyboard.hpp"
 #include "font/font.h"
+#include <furi_hal.h>
 #include <string.h>
+
+#define BLINK_INTERVAL_MS 1000
 
 Keyboard::Keyboard()
 {
     reset();
     resetText();
+    text_edit_mode = false;
 }
 
 Keyboard::~Keyboard()
 {
-    // Destructor - text buffer is automatically cleaned up
 }
 
 void Keyboard::clampCursorToValidPosition()
@@ -33,6 +36,8 @@ void Keyboard::clampCursorToValidPosition()
 void Keyboard::clearText()
 {
     text_buffer[0] = '\0';
+    text_cursor = 0;
+    text_edit_mode = false;
 }
 
 void Keyboard::draw(Canvas *canvas, const char *title)
@@ -63,13 +68,11 @@ void Keyboard::draw(Canvas *canvas, const char *title, const char *current_text)
     char display_text[MAX_TEXT_SIZE];
     if (scroll_offset > 0)
     {
-        strncpy(display_text, current_text + scroll_offset, MAX_TEXT_SIZE - 1);
-        display_text[MAX_TEXT_SIZE - 1] = '\0';
+        snprintf(display_text, MAX_TEXT_SIZE, "%s", current_text + scroll_offset);
     }
     else
     {
-        strncpy(display_text, current_text, MAX_TEXT_SIZE - 1);
-        display_text[MAX_TEXT_SIZE - 1] = '\0';
+        snprintf(display_text, MAX_TEXT_SIZE, "%s", current_text);
     }
 
     // Show scroll indicator if text is scrolled (draw first, before text)
@@ -82,6 +85,23 @@ void Keyboard::draw(Canvas *canvas, const char *title, const char *current_text)
 
     // Draw the visible portion of the text
     canvas_draw_str(canvas, text_start_x, 8, display_text);
+
+    // Draw blinking text cursor
+    uint32_t tick = furi_get_tick();
+    bool cursor_visible = (tick / BLINK_INTERVAL_MS) % 2 == 0; // Blink every BLINK_INTERVAL_MS
+
+    if (cursor_visible)
+    {
+        int cursor_display_pos = text_cursor - scroll_offset;
+        if (cursor_display_pos >= 0 && cursor_display_pos <= max_visible_chars)
+        {
+            char text_before_cursor[MAX_TEXT_SIZE];
+            snprintf(text_before_cursor, MAX_TEXT_SIZE, "%.*s", cursor_display_pos, display_text);
+            uint16_t text_width = canvas_string_width(canvas, text_before_cursor);
+            int cursor_x = text_start_x + text_width;
+            canvas_draw_box(canvas, cursor_x, 1, 1, 8);
+        }
+    }
 
     // Draw compact 3x10 virtual keyboard
     for (int row = 0; row < KEYBOARD_ROWS; row++)
@@ -184,9 +204,71 @@ void Keyboard::draw(Canvas *canvas, const char *title, const char *current_text)
     canvas_draw_str(canvas, 105, func_y, "DONE");
     canvas_set_color(canvas, ColorBlack);
 
-    // Draw title at the bottom
+    // Draw title at the bottom centered
     canvas_set_font_custom(canvas, FONT_SIZE_SMALL);
-    canvas_draw_str(canvas, 50, 64, title);
+    uint16_t title_width = canvas_string_width(canvas, title);
+    int title_x = (display_width - title_width) / 2;
+    canvas_draw_str(canvas, title_x, 64, title);
+}
+
+char Keyboard::getCurrentChar(bool long_press)
+{
+    const char (*keyboard)[11] = getCurrentKeyboard();
+    char ch = keyboard[cursor_y][cursor_x];
+    /* if long press,
+      - return uppercase version if in lowercase mode
+      - return lowercase version if in uppercase mode
+    */
+    if (long_press)
+    {
+        switch (mode)
+        {
+        case KEYBOARD_NUMBERS:
+            // No change in number mode
+            return ch;
+        case KEYBOARD_LOWERCASE:
+            if (ch >= 'a' && ch <= 'z')
+            {
+                return ch - ('a' - 'A');
+            }
+            switch (ch)
+            {
+            case '.':
+                return ',';
+            case '_':
+                return '-';
+            case '/':
+                return '\\';
+            case ':':
+                return ';';
+            default:
+                break;
+            };
+            break;
+        case KEYBOARD_UPPERCASE:
+            if (ch >= 'A' && ch <= 'Z')
+            {
+                return ch + ('a' - 'A');
+            }
+            switch (ch)
+            {
+            case ',':
+                return '.';
+            case '-':
+                return '_';
+            case '\\':
+                return '/';
+            case ';':
+                return ':';
+            default:
+                break;
+            };
+            break;
+        default:
+            break;
+        };
+    }
+    return ch;
 }
 
 const char (*Keyboard::getCurrentKeyboard())[11]
@@ -237,28 +319,100 @@ size_t Keyboard::getTextLength() const
 
 const char Keyboard::keyboard_lowercase[3][11] = {
     {'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '\0'},
-    {'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', '-', '\0'},
+    {'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ':', '\0'},
     {'z', 'x', 'c', 'v', 'b', 'n', 'm', '.', '_', '/', '\0'}};
 
 const char Keyboard::keyboard_uppercase[3][11] = {
     {'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '\0'},
-    {'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', '-', '\0'},
-    {'Z', 'X', 'C', 'V', 'B', 'N', 'M', '.', '_', '/', '\0'}};
+    {'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ';', '\0'},
+    {'Z', 'X', 'C', 'V', 'B', 'N', 'M', ',', '-', '\\', '\0'}};
 
 const char Keyboard::keyboard_numbers[3][11] = {
     {'1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '\0'},
     {'@', '#', '$', '%', '&', '*', '+', '=', '?', '!', '\0'},
-    {'(', ')', '[', ']', '{', '}', '<', '>', '|', '\\', '\0'}};
+    {'(', ')', '[', ']', '{', '}', '<', '>', '|', '~', '\0'}};
 
-bool Keyboard::handleInput(uint8_t key)
+bool Keyboard::handleInput(InputEvent *event)
 {
-    return handleInput(key, text_buffer, MAX_TEXT_SIZE);
+    if (event->type != InputTypeShort && event->type != InputTypeLong)
+    {
+        return false;
+    }
+    return handleInput(event, text_buffer, MAX_TEXT_SIZE);
 }
 
-bool Keyboard::handleInput(uint8_t key, char *target_buffer, size_t target_size)
+bool Keyboard::handleInput(InputEvent *event, char *target_buffer, size_t target_size)
 {
     const char (*keyboard)[11] = getCurrentKeyboard();
+    const uint8_t key = event->key;
 
+    if (key == InputKeyBack && event->type == InputTypeShort)
+    {
+        // Delete character to the left of cursor
+        size_t text_len = getStringLength(target_buffer, target_size);
+        if (text_len > 0 && text_cursor > 0)
+        {
+            // Shift characters left to remove character before cursor
+            for (size_t i = text_cursor - 1; i < text_len; i++)
+            {
+                target_buffer[i] = target_buffer[i + 1];
+            }
+            text_cursor--;
+        }
+        return false; // keyboard not done yet
+    }
+
+    // Handle text edit mode
+    if (text_edit_mode)
+    {
+        size_t text_len = getStringLength(target_buffer, target_size);
+
+        switch (key)
+        {
+        case InputKeyLeft:
+            if (text_cursor > 0)
+            {
+                text_cursor--;
+            }
+            break;
+
+        case InputKeyRight:
+            if (text_cursor < text_len)
+            {
+                text_cursor++;
+            }
+            break;
+
+        case InputKeyUp:
+            // Stay in text edit mode
+            break;
+
+        case InputKeyDown:
+            // Exit text edit mode and return to keyboard
+            text_edit_mode = false;
+            break;
+
+        case InputKeyOk:
+            // Backspace at cursor position
+            if (text_cursor > 0 && text_len > 0)
+            {
+                // Shift characters left to remove character before cursor
+                for (size_t i = text_cursor - 1; i < text_len; i++)
+                {
+                    target_buffer[i] = target_buffer[i + 1];
+                }
+                text_cursor--;
+            }
+            break;
+
+        default:
+            break;
+        }
+
+        return false;
+    }
+
+    // Handle keyboard navigation mode
     switch (key)
     {
     case InputKeyLeft:
@@ -322,6 +476,28 @@ bool Keyboard::handleInput(uint8_t key, char *target_buffer, size_t target_size)
     case InputKeyUp:
         if (cursor_y > 0)
         {
+            // Map function keys to bottom row keys when moving up
+            if (cursor_y == FUNCTION_ROW)
+            {
+                switch (cursor_x)
+                {
+                case FUNC_KEY_SPACE:
+                    cursor_x = 1; // → x (middle of z,x,c)
+                    break;
+                case FUNC_KEY_BACKSPACE:
+                    cursor_x = 3; // → v
+                    break;
+                case FUNC_KEY_MODE_SWITCH:
+                    cursor_x = 5; // → n (middle of b,n)
+                    break;
+                case FUNC_KEY_CAPS_LOCK:
+                    cursor_x = 6; // → m (middle of m,.)
+                    break;
+                case FUNC_KEY_DONE:
+                    cursor_x = 8; // → _ (middle of _,/)
+                    break;
+                }
+            }
             cursor_y--;
             if (cursor_y < KEYBOARD_ROWS)
             { // Moving to main keyboard
@@ -330,10 +506,8 @@ bool Keyboard::handleInput(uint8_t key, char *target_buffer, size_t target_size)
         }
         else
         {
-            // Wrap to function key row
-            cursor_y = FUNCTION_ROW;
-            if (cursor_x > 4)
-                cursor_x = 4;
+            // Enter text edit mode when pressing up from top keyboard row
+            text_edit_mode = true;
         }
         break;
 
@@ -348,8 +522,27 @@ bool Keyboard::handleInput(uint8_t key, char *target_buffer, size_t target_size)
             else
             { // Move to function keys
                 cursor_y = FUNCTION_ROW;
-                if (cursor_x > 4)
-                    cursor_x = 4;
+                // Map bottom row keys to corresponding function keys
+                if (cursor_x <= 2)
+                { // z, x, c → SPACE
+                    cursor_x = FUNC_KEY_SPACE;
+                }
+                else if (cursor_x == 3)
+                { // v → DEL
+                    cursor_x = FUNC_KEY_BACKSPACE;
+                }
+                else if (cursor_x <= 5)
+                { // b, n → 123
+                    cursor_x = FUNC_KEY_MODE_SWITCH;
+                }
+                else if (cursor_x <= 7)
+                { // m, . → CAPS
+                    cursor_x = FUNC_KEY_CAPS_LOCK;
+                }
+                else
+                { // _, / → DONE
+                    cursor_x = FUNC_KEY_DONE;
+                }
             }
         }
         else
@@ -371,8 +564,15 @@ bool Keyboard::handleInput(uint8_t key, char *target_buffer, size_t target_size)
                 size_t len = getStringLength(target_buffer, target_size);
                 if (len < target_size - 1)
                 {
-                    target_buffer[len] = ' ';
+                    // Insert space at cursor position
+                    // Shift characters right
+                    for (size_t i = len; i > text_cursor; i--)
+                    {
+                        target_buffer[i] = target_buffer[i - 1];
+                    }
+                    target_buffer[text_cursor] = ' ';
                     target_buffer[len + 1] = '\0';
+                    text_cursor++;
                 }
                 break;
             }
@@ -382,7 +582,16 @@ bool Keyboard::handleInput(uint8_t key, char *target_buffer, size_t target_size)
                 size_t len = getStringLength(target_buffer, target_size);
                 if (len > 0)
                 {
-                    target_buffer[len - 1] = '\0';
+                    // Delete at cursor position (before cursor)
+                    if (text_cursor > 0)
+                    {
+                        // Shift characters left
+                        for (size_t i = text_cursor - 1; i < len; i++)
+                        {
+                            target_buffer[i] = target_buffer[i + 1];
+                        }
+                        text_cursor--;
+                    }
                 }
                 break;
             }
@@ -411,15 +620,23 @@ bool Keyboard::handleInput(uint8_t key, char *target_buffer, size_t target_size)
             }
         }
         else
-        { // Main keyboard area
-            char ch = keyboard[cursor_y][cursor_x];
+        {
+            // Main keyboard area
+            char ch = getCurrentChar(event->type == InputTypeLong);
             if (ch != '\0')
             {
                 size_t len = getStringLength(target_buffer, target_size);
                 if (len < target_size - 1)
                 {
-                    target_buffer[len] = ch;
+                    // Insert character at cursor position
+                    // Shift characters right
+                    for (size_t i = len; i > text_cursor; i--)
+                    {
+                        target_buffer[i] = target_buffer[i - 1];
+                    }
+                    target_buffer[text_cursor] = ch;
                     target_buffer[len + 1] = '\0';
+                    text_cursor++;
 
                     // Auto-switch to lowercase after typing a letter in caps mode (not caps lock)
                     if (mode == KEYBOARD_UPPERCASE && !caps_lock &&
@@ -445,22 +662,27 @@ void Keyboard::reset()
     cursor_y = 0;
     mode = KEYBOARD_LOWERCASE;
     caps_lock = false;
+    text_edit_mode = false;
 }
 
 void Keyboard::resetText()
 {
     text_buffer[0] = '\0';
+    text_cursor = 0;
+    text_edit_mode = false;
 }
 
 void Keyboard::setText(const char *text)
 {
     if (text != nullptr)
     {
-        strncpy(text_buffer, text, MAX_TEXT_SIZE - 1);
-        text_buffer[MAX_TEXT_SIZE - 1] = '\0';
+        snprintf(text_buffer, MAX_TEXT_SIZE, "%s", text);
+        text_cursor = strlen(text_buffer);
     }
     else
     {
         text_buffer[0] = '\0';
+        text_cursor = 0;
     }
+    text_edit_mode = false;
 }

@@ -77,6 +77,7 @@ public:
     bool saveChar(const char *path_name, const char *value);                                                    // save a string to storage
     bool setHttpState(HTTPState state = IDLE) noexcept;                                                         // set the HTTP state
     bool sendHttpCommand(HTTPCommand command);                                                                  // send a command to the board
+    bool sendRawData(const char *data);                                                                        // send a raw string to the board
     bool sendWiFiCredentials(const char *ssid, const char *password);                                           // send WiFi credentials to the board
     static void viewPortDraw(Canvas *canvas, void *context);                                                    // draw callback for the ViewPort (used in run instance)
     static void viewPortInput(InputEvent *event, void *context);                                                // input callback for the ViewPort (used in run instance)
