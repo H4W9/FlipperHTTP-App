@@ -1273,20 +1273,48 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
                 bool has_response = true;
                 switch (commandIndex)
                 {
-                case 1: sent = app->sendHttpCommand(HTTP_CMD_PING); break;
-                case 2: sent = app->sendRawData("[BOARD/NAME]"); break; // firmware v2.1.4, raw string
-                case 3: sent = app->sendHttpCommand(HTTP_CMD_VERSION); break;
-                case 4: sent = app->sendHttpCommand(HTTP_CMD_LIST_COMMANDS); break;
-                case 5: sent = app->sendHttpCommand(HTTP_CMD_STATUS); break;
-                case 6: sent = app->sendHttpCommand(HTTP_CMD_SSID); break;
-                case 7: sent = app->sendHttpCommand(HTTP_CMD_WIFI_LIST); break;
-                case 8: sent = app->sendHttpCommand(HTTP_CMD_IP_ADDRESS); break;
-                case 9: sent = app->sendHttpCommand(HTTP_CMD_IP_WIFI); break;
-                case 10: sent = app->sendHttpCommand(HTTP_CMD_WIFI_CONNECT); break;
-                case 11: sent = app->sendHttpCommand(HTTP_CMD_WIFI_DISCONNECT); break;
-                case 12: sent = app->sendHttpCommand(HTTP_CMD_LED_ON); has_response = false; break;  // no response expected
-                case 13: sent = app->sendHttpCommand(HTTP_CMD_LED_OFF); has_response = false; break; // no response expected
-                case 14: sent = app->sendHttpCommand(HTTP_CMD_REBOOT); has_response = false; break;  // no response expected
+                case 1: 
+                    sent = app->sendHttpCommand(HTTP_CMD_PING); 
+                    break;
+                case 2: 
+                    sent = app->sendRawData("[BOARD/NAME]"); 
+                    break; // firmware v2.1.4, raw string
+                case 3: 
+                    sent = app->sendHttpCommand(HTTP_CMD_VERSION); 
+                    break;
+                case 4: 
+                    sent = app->sendHttpCommand(HTTP_CMD_LIST_COMMANDS); 
+                    break;
+                case 5: 
+                    sent = app->sendHttpCommand(HTTP_CMD_STATUS); 
+                    break;
+                case 6: 
+                    sent = app->sendHttpCommand(HTTP_CMD_SSID); 
+                    break;
+                case 7: 
+                    sent = app->sendHttpCommand(HTTP_CMD_WIFI_LIST); 
+                    break;
+                case 8: 
+                    sent = app->sendHttpCommand(HTTP_CMD_IP_ADDRESS); 
+                    break;
+                case 9: 
+                    sent = app->sendHttpCommand(HTTP_CMD_IP_WIFI); 
+                    break;
+                case 10: 
+                    sent = app->sendHttpCommand(HTTP_CMD_WIFI_CONNECT); 
+                    break;
+                case 11: 
+                    sent = app->sendHttpCommand(HTTP_CMD_WIFI_DISCONNECT); 
+                    break;
+                case 12: 
+                    sent = app->sendHttpCommand(HTTP_CMD_LED_ON); has_response = false; 
+                    break;  // no response expected
+                case 13: 
+                    sent = app->sendHttpCommand(HTTP_CMD_LED_OFF); has_response = false; 
+                    break; // no response expected
+                case 14: 
+                    sent = app->sendHttpCommand(HTTP_CMD_REBOOT); has_response = false; 
+                    break;  // no response expected
                 default: break;
                 }
                 if (!sent)
