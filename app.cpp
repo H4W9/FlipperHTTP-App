@@ -528,6 +528,10 @@ void FlipperHTTPApp::viewPortDraw(Canvas *canvas, void *context)
 
 void FlipperHTTPApp::viewPortInput(InputEvent *event, void *context)
 {
+    if (event->type != InputTypeShort && event->type != InputTypeLong && event->type != InputTypeRepeat)
+    {
+        return;
+    }
     FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(context);
     furi_check(app);
     auto run = app->run.get();
