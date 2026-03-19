@@ -817,7 +817,7 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
         {
             if (keyboard)
             {
-                if (keyboard->handleInput(lastInput))
+                if (keyboard->handleInput(event))
                 {
                     FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
                     furi_check(app);
