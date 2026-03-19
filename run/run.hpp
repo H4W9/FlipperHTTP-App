@@ -61,7 +61,6 @@ class FlipperHTTPRun
     RequestStatus saveWiFiStatus;       // status of the Save WiFi view
     RequestStatus scanStatus;           // status of the Scan view
     std::vector<std::string> ssidList;  // list of scanned SSIDs
-    bool shouldDebounce;                // flag to debounce input
     bool shouldReturnToMenu;            // Flag to signal return to menu
     RequestStatus statusStatus;         // status of the Status view
 public:
@@ -69,7 +68,6 @@ public:
     ~FlipperHTTPRun();
     //
     bool isActive() const { return shouldReturnToMenu == false; }                                    // Check if the run is active
-    void debounceInput();                                                                            // debounce input to prevent multiple triggers
     void drawConnectView(Canvas *canvas);                                                            // Draw the Connect view
     void drawMainMenuView(Canvas *canvas);                                                           // Draw the main menu view
     void drawMenu(Canvas *canvas, uint8_t selectedIndex, const char **menuItems, uint8_t menuCount); // Generic menu drawer

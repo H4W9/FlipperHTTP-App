@@ -4,30 +4,13 @@
 FlipperHTTPRun::FlipperHTTPRun(void *appContext) : appContext(appContext), connectionType(ConnectionTypeConnection), connectStatus(RequestStatusNotStarted),
                                                    currentMenuIndex(0), currentSSIDIndex(0), currentView(AppViewMainMenu), inputHeld(false), keyboard(nullptr),
                                                    lastInput(InputKeyMAX), loading(nullptr), saveWiFiStatus(RequestStatusNotStarted),
-                                                   scanStatus(RequestStatusNotStarted), shouldDebounce(false), shouldReturnToMenu(false), statusStatus(RequestStatusNotStarted)
+                                                   scanStatus(RequestStatusNotStarted), shouldReturnToMenu(false), statusStatus(RequestStatusNotStarted)
 {
 }
 
 FlipperHTTPRun::~FlipperHTTPRun()
 {
     // nothing to do
-}
-
-void FlipperHTTPRun::debounceInput()
-{
-    static uint8_t debounceCounter = 0;
-    if (shouldDebounce)
-    {
-        lastInput = InputKeyMAX;
-        debounceCounter++;
-        if (debounceCounter < 2)
-        {
-            return;
-        }
-        debounceCounter = 0;
-        shouldDebounce = false;
-        inputHeld = false;
-    }
 }
 
 void FlipperHTTPRun::drawConnectView(Canvas *canvas)
@@ -750,7 +733,6 @@ void FlipperHTTPRun::updateDraw(Canvas *canvas)
 void FlipperHTTPRun::updateInput(InputEvent *event)
 {
     lastInput = event->key;
-    debounceInput();
     switch (currentView)
     {
     case AppViewMainMenu:
@@ -760,18 +742,15 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
             if (currentMenuIndex < 2)
             {
                 currentMenuIndex++;
-                shouldDebounce = true;
             }
             break;
         case InputKeyLeft:
             if (currentMenuIndex > 0)
             {
                 currentMenuIndex--;
-                shouldDebounce = true;
             }
             break;
         case InputKeyBack:
-            shouldDebounce = true;
             shouldReturnToMenu = true;
             if (loading)
             {
@@ -785,7 +764,6 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
             currentMenuIndex = 0;
             break;
         case InputKeyOk:
-            shouldDebounce = true;
             switch (currentMenuIndex)
             {
             case AppViewStatus:
@@ -831,15 +809,10 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
                     currentSSIDIndex = 0;
                     keyboard.reset();
                 }
-                if (lastInput != InputKeyMAX)
-                {
-                    shouldDebounce = true;
-                }
             }
             if (lastInput == InputKeyBack)
             {
                 scanStatus = RequestStatusWaiting;
-                shouldDebounce = true;
                 currentView = AppViewMainMenu;
             }
         }
@@ -851,18 +824,15 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
                 if (currentSSIDIndex < ssidList.size() - 1)
                 {
                     currentSSIDIndex++;
-                    shouldDebounce = true;
                 }
                 break;
             case InputKeyLeft:
                 if (currentSSIDIndex > 0)
                 {
                     currentSSIDIndex--;
-                    shouldDebounce = true;
                 }
                 break;
             case InputKeyBack:
-                shouldDebounce = true;
                 currentView = AppViewMainMenu;
                 break;
             case InputKeyOk:
@@ -876,7 +846,6 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
                     keyboard->setText(""); // Start with empty text
                 }
                 scanStatus = RequestStatusKeyboard;
-                shouldDebounce = true;
                 break;
             default:
                 break;
@@ -886,7 +855,6 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
     default:
         if (lastInput == InputKeyBack)
         {
-            shouldDebounce = true;
             if (currentView == AppViewStatus)
             {
                 connectionType = ConnectionTypeConnection;
