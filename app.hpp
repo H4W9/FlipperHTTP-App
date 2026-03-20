@@ -7,7 +7,7 @@
 #include "about/about.hpp"
 
 #define TAG "FlipperHTTP"
-#define VERSION "1.0"
+#define VERSION "1.1"
 #define VERSION_TAG TAG " " VERSION
 #define APP_ID "flipper_http"
 
