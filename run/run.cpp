@@ -437,6 +437,16 @@ void FlipperHTTPRun::drawNetworkListView(Canvas *canvas)
         canvas_draw_str(canvas, 0, 20, "Reconnect your board and");
         canvas_draw_str(canvas, 0, 30, "try again later.");
         break;
+    case RequestStatusKeyboard:
+        if (!keyboard)
+        {
+            keyboard = std::make_unique<Keyboard>();
+        }
+        if (keyboard)
+        {
+            keyboard->draw(canvas, "Update password:");
+        }
+        break;
     default:
         canvas_draw_str(canvas, 0, 10, "Loading...");
         break;
@@ -1020,10 +1030,7 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
                     app->saveChar("wifi_ssid", ssidList[currentSSIDIndex].c_str());
                     app->saveChar("wifi_pass", keyboard->getText());
                     std::string networkPathName = "networks/" + ssidList[currentSSIDIndex];
-                    if (!app->saveChar(networkPathName.c_str(), keyboard->getText()))
-                    {
-                        FURI_LOG_E(TAG, "Failed to save network password");
-                    }
+                    app->saveChar(networkPathName.c_str(), keyboard->getText());
                     scanStatus = RequestStatusWaiting;
                     saveWiFiStatus = RequestStatusWaiting;
                     userRequest(RequestTypeSaveWiFi);
@@ -1120,64 +1127,97 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
         };
         break;
     case AppViewNetworkList:
-        switch (lastInput)
+        if (networkListStatus == RequestStatusKeyboard)
         {
-        case InputKeyBack:
-            networkListStatus = RequestStatusNotStarted;
-            currentView = AppViewMainMenu;
-            currentMenuIndex = 4; // move to network list
-            currentNetworkListIndex = 0;
-            break;
-        case InputKeyOk:
-        {
-            // here we will load the selected network's password
-            // then save both the SSID and password to the current WiFi credentials, then move to save view
-            char wifi_pass[64] = {0};
-            FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
-            furi_check(app);
-            std::string networkPathName = "networks/" + ssidList[currentNetworkListIndex];
-            if (!app->loadChar(networkPathName.c_str(), wifi_pass, sizeof(wifi_pass)))
+            if (keyboard)
             {
-                FURI_LOG_E(TAG, "Failed to load network password");
+                if (keyboard->handleInput(event))
+                {
+                    // save both the SSID and password to the current WiFi credentials, then move to save view
+                    FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+                    furi_check(app);
+                    app->saveChar("wifi_ssid", ssidList[currentNetworkListIndex].c_str());
+                    app->saveChar("wifi_pass", keyboard->getText());
+                    std::string networkPathName = "networks/" + ssidList[currentNetworkListIndex];
+                    app->saveChar(networkPathName.c_str(), keyboard->getText());
+                    saveWiFiStatus = RequestStatusWaiting;
+                    userRequest(RequestTypeSaveWiFi);
+                    currentView = AppViewSaveWiFi;
+                    currentMenuIndex = 1; // move to connect
+                    currentSSIDIndex = 0;
+                    keyboard.reset();
+                }
             }
-            app->saveChar("wifi_ssid", ssidList[currentNetworkListIndex].c_str());
-            app->saveChar("wifi_pass", wifi_pass);
-            saveWiFiStatus = RequestStatusWaiting;
-            userRequest(RequestTypeSaveWiFi);
-            currentView = AppViewSaveWiFi;
-            currentMenuIndex = 1; // move to connect
-            currentSSIDIndex = 0;
-            break;
+            if (lastInput == InputKeyBack && event->type == InputTypeLong)
+            {
+                networkListStatus = RequestStatusWaiting;
+                currentView = AppViewMainMenu;
+            }
         }
-        case InputKeyRight:
+        else
         {
-            auto listSize = ssidList.size();
-            if (currentNetworkListIndex < listSize - 1)
+            switch (lastInput)
             {
-                currentNetworkListIndex++;
-            }
-            else
-            {
+            case InputKeyBack:
+                networkListStatus = RequestStatusNotStarted;
+                currentView = AppViewMainMenu;
+                currentMenuIndex = 4; // move to network list
                 currentNetworkListIndex = 0;
-            }
-            break;
-        }
-        case InputKeyLeft:
-        {
-            auto listSize = ssidList.size();
-            if (currentNetworkListIndex > 0)
+                break;
+            case InputKeyOk:
             {
-                currentNetworkListIndex--;
+                // here we will load the selected network's password
+                // then save both the SSID and password to the current WiFi credentials, then move to save view
+                char wifi_pass[64] = {0};
+                FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+                furi_check(app);
+                std::string networkPathName = "networks/" + ssidList[currentNetworkListIndex];
+                if (!app->loadChar(networkPathName.c_str(), wifi_pass, sizeof(wifi_pass)))
+                {
+                    FURI_LOG_E(TAG, "Failed to load network password");
+                }
+                if (!keyboard)
+                {
+                    keyboard = std::make_unique<Keyboard>();
+                }
+                if (keyboard)
+                {
+                    keyboard->clearText();
+                    keyboard->setText(wifi_pass); // Start with the saved password
+                }
+                networkListStatus = RequestStatusKeyboard;
+                break;
             }
-            else
+            case InputKeyRight:
             {
-                currentNetworkListIndex = listSize - 1;
+                auto listSize = ssidList.size();
+                if (currentNetworkListIndex < listSize - 1)
+                {
+                    currentNetworkListIndex++;
+                }
+                else
+                {
+                    currentNetworkListIndex = 0;
+                }
+                break;
             }
-            break;
+            case InputKeyLeft:
+            {
+                auto listSize = ssidList.size();
+                if (currentNetworkListIndex > 0)
+                {
+                    currentNetworkListIndex--;
+                }
+                else
+                {
+                    currentNetworkListIndex = listSize - 1;
+                }
+                break;
+            }
+            default:
+                break;
+            };
         }
-        default:
-            break;
-        };
         break;
     default:
         if (lastInput == InputKeyBack)
