@@ -2,7 +2,7 @@
 #include "app.hpp"
 
 FlipperHTTPRun::FlipperHTTPRun(void *appContext) : appContext(appContext), commandStatus(RequestStatusNotStarted), connectionType(ConnectionTypeConnection), connectStatus(RequestStatusNotStarted),
-                                                   currentMenuIndex(0), currentSSIDIndex(0), currentView(AppViewMainMenu), inputHeld(false), keyboard(nullptr),
+                                                   currentMenuIndex(0), currentSSIDIndex(0), currentView(AppViewMainMenu), keyboard(nullptr),
                                                    lastInput(InputKeyMAX), loading(nullptr), saveWiFiStatus(RequestStatusNotStarted),
                                                    scanStatus(RequestStatusNotStarted), shouldReturnToMenu(false), statusStatus(RequestStatusNotStarted)
 {

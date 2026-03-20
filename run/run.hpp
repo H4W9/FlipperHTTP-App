@@ -58,7 +58,6 @@ class FlipperHTTPRun
     uint8_t currentMenuIndex;           // current menu index
     uint8_t currentSSIDIndex;           // current SSID index for scan view
     AppView currentView;                // current view of the social run
-    bool inputHeld;                     // flag to check if input is held
     std::unique_ptr<Keyboard> keyboard; // keyboard instance for input handling
     InputKey lastInput;                 // last input key pressed
     std::unique_ptr<Loading> loading;   // loading animation instance
