@@ -1,7 +1,7 @@
 #include "run/run.hpp"
 #include "app.hpp"
 
-FlipperHTTPRun::FlipperHTTPRun(void *appContext) : appContext(appContext), connectionType(ConnectionTypeConnection), connectStatus(RequestStatusNotStarted),
+FlipperHTTPRun::FlipperHTTPRun(void *appContext) : appContext(appContext), commandStatus(RequestStatusNotStarted), connectionType(ConnectionTypeConnection), connectStatus(RequestStatusNotStarted),
                                                    currentMenuIndex(0), currentSSIDIndex(0), currentView(AppViewMainMenu), inputHeld(false), keyboard(nullptr),
                                                    lastInput(InputKeyMAX), loading(nullptr), saveWiFiStatus(RequestStatusNotStarted),
                                                    scanStatus(RequestStatusNotStarted), shouldReturnToMenu(false), statusStatus(RequestStatusNotStarted)
@@ -13,9 +13,114 @@ FlipperHTTPRun::~FlipperHTTPRun()
     // nothing to do
 }
 
+void FlipperHTTPRun::drawCommandsView(Canvas *canvas)
+{
+
+    static bool loadingStarted = false;
+    switch (commandStatus)
+    {
+    case RequestStatusNotStarted:
+    {
+        const char *menuItems[] = {
+            "WIFI/CONNECT]",
+            "[WIFI/DISCONNECT]",
+            "[IP/ADDRESS]",
+            "[WIFI/IP]",
+            "[WIFI/SCAN]",
+            "[LIST]",
+            "[LED/ON]",
+            "[LED/OFF]",
+            "[PING]",
+            "[VERSION]",
+            "[WIFI/STATUS]",
+            "[REBOOT]",
+            "[WIFI/SSID]",
+            "[WIFI/LIST]",
+        };
+        drawMenu(canvas, currentCommandIndex, menuItems, 14);
+        break;
+    }
+    case RequestStatusWaiting:
+    {
+        if (!loadingStarted)
+        {
+            if (!loading)
+            {
+                loading = std::make_unique<Loading>(canvas);
+            }
+            loading->setText("Executing command...");
+        }
+        loadingStarted = true;
+        if (loading)
+        {
+            loading->animate();
+        }
+        FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+        furi_check(app);
+
+        HTTPState state = app->getHttpState();
+        if (state == RECEIVING || state == SENDING)
+        {
+            // still processing, keep showing loading
+            return;
+        }
+
+        loading->stop();
+        loadingStarted = false;
+
+        if (state == ISSUE)
+        {
+            commandStatus = RequestStatusRequestError;
+            return;
+        }
+        commandStatus = RequestStatusSuccess;
+        break;
+    }
+    case RequestStatusSuccess:
+    {
+        FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+        furi_check(app);
+        const char *response = app->getHttpResponse();
+        size_t response_len = strlen(response);
+        size_t chars_per_line = 32;
+        if (response_len == 0)
+        {
+            canvas_draw_str(canvas, 0, 10, "Command executed!");
+        }
+        else if (response_len < chars_per_line)
+        {
+            canvas_draw_str(canvas, 0, 10, response);
+        }
+        else
+        {
+            canvas_set_font_custom(canvas, FONT_SIZE_SMALL);
+            char buffer[chars_per_line + 1];
+            size_t offset = 0;
+            int line = 0;
+            while (offset < response_len && line < 9) // max 9 lines
+            {
+                size_t chunk_size = (response_len - offset > chars_per_line) ? chars_per_line : (response_len - offset);
+                snprintf(buffer, sizeof(buffer), "%.*s", (int)chunk_size, response + offset);
+                canvas_draw_str(canvas, 0, 5 + (line * 7), buffer);
+                offset += chunk_size;
+                line++;
+            }
+        }
+        break;
+    }
+    case RequestStatusRequestError:
+        canvas_draw_str(canvas, 0, 10, "Command request failed!");
+        canvas_draw_str(canvas, 0, 20, "Reconnect your board and");
+        canvas_draw_str(canvas, 0, 30, "try again later.");
+        break;
+    default:
+        canvas_draw_str(canvas, 0, 10, "Executing command...");
+        break;
+    }
+}
+
 void FlipperHTTPRun::drawConnectView(Canvas *canvas)
 {
-    canvas_clear(canvas);
     canvas_set_font(canvas, FontPrimary);
     static bool loadingStarted = false;
     switch (connectStatus)
@@ -96,14 +201,12 @@ void FlipperHTTPRun::drawConnectView(Canvas *canvas)
 
 void FlipperHTTPRun::drawMainMenuView(Canvas *canvas)
 {
-    const char *menuItems[] = {"Status", "Connect", "Scan"};
-    drawMenu(canvas, (uint8_t)currentMenuIndex, menuItems, 3);
+    const char *menuItems[] = {"Status", "Connect", "Scan", "Commands"};
+    drawMenu(canvas, currentMenuIndex, menuItems, 4);
 }
 
 void FlipperHTTPRun::drawMenu(Canvas *canvas, uint8_t selectedIndex, const char **menuItems, uint8_t menuCount)
 {
-    canvas_clear(canvas);
-
     // Draw title
     canvas_set_font_custom(canvas, FONT_SIZE_LARGE);
     const char *title = "FlipperHTTP";
@@ -296,7 +399,6 @@ void FlipperHTTPRun::drawMenu(Canvas *canvas, uint8_t selectedIndex, const char 
 
 void FlipperHTTPRun::drawSaveWiFiView(Canvas *canvas)
 {
-    canvas_clear(canvas);
     canvas_set_font(canvas, FontPrimary);
     static bool loadingStarted = false;
     switch (saveWiFiStatus)
@@ -387,7 +489,6 @@ void FlipperHTTPRun::drawSaveWiFiView(Canvas *canvas)
 
 void FlipperHTTPRun::drawScanView(Canvas *canvas)
 {
-    canvas_clear(canvas);
     canvas_set_font(canvas, FontPrimary);
     static bool loadingStarted = false;
     switch (scanStatus)
@@ -508,7 +609,6 @@ void FlipperHTTPRun::drawStatusView(Canvas *canvas)
     3. ConnectionTypeIP: Get current IP address
     Then displays all three together.
     */
-    canvas_clear(canvas);
     canvas_set_font(canvas, FontPrimary);
     static bool loadingStarted = false;
 
@@ -705,6 +805,14 @@ bool FlipperHTTPRun::httpRequestIsFinished()
     return state == IDLE || state == ISSUE || state == INACTIVE;
 }
 
+void FlipperHTTPRun::sendCommand(HTTPCommand command)
+{
+    FlipperHTTPApp *app = static_cast<FlipperHTTPApp *>(appContext);
+    furi_check(app);
+    app->clearHttpResponse();
+    app->sendHttpCommand(command);
+}
+
 void FlipperHTTPRun::updateDraw(Canvas *canvas)
 {
     canvas_clear(canvas);
@@ -725,6 +833,9 @@ void FlipperHTTPRun::updateDraw(Canvas *canvas)
     case AppViewSaveWiFi:
         drawSaveWiFiView(canvas);
         break;
+    case AppViewCommands:
+        drawCommandsView(canvas);
+        break;
     default:
         break;
     };
@@ -739,15 +850,23 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
         switch (lastInput)
         {
         case InputKeyRight:
-            if (currentMenuIndex < 2)
+            if (currentMenuIndex < 3)
             {
                 currentMenuIndex++;
+            }
+            else
+            {
+                currentMenuIndex = 0;
             }
             break;
         case InputKeyLeft:
             if (currentMenuIndex > 0)
             {
                 currentMenuIndex--;
+            }
+            else
+            {
+                currentMenuIndex = 3;
             }
             break;
         case InputKeyBack:
@@ -782,6 +901,11 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
                 currentSSIDIndex = 0;
                 scanStatus = RequestStatusWaiting;
                 userRequest(RequestTypeScan);
+                break;
+            case AppViewCommands:
+                currentView = AppViewCommands;
+                currentCommandIndex = 0;
+                commandStatus = RequestStatusNotStarted;
                 break;
             default:
                 break;
@@ -851,6 +975,50 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
                 break;
             }
         }
+        break;
+    case AppViewCommands:
+        switch (lastInput)
+        {
+        case InputKeyBack:
+            if (commandStatus != RequestStatusSuccess)
+            {
+                commandStatus = RequestStatusNotStarted;
+                currentView = AppViewMainMenu;
+                currentMenuIndex = 3; // move to commands
+                currentCommandIndex = 0;
+            }
+            else
+            {
+                commandStatus = RequestStatusNotStarted;
+            }
+            break;
+        case InputKeyOk:
+            this->sendCommand(static_cast<HTTPCommand>(currentCommandIndex));
+            commandStatus = RequestStatusWaiting;
+            break;
+        case InputKeyRight:
+            if (currentCommandIndex < 13)
+            {
+                currentCommandIndex++;
+            }
+            else
+            {
+                currentCommandIndex = 0;
+            }
+            break;
+        case InputKeyLeft:
+            if (currentCommandIndex > 0)
+            {
+                currentCommandIndex--;
+            }
+            else
+            {
+                currentCommandIndex = 13;
+            }
+            break;
+        default:
+            break;
+        };
         break;
     default:
         if (lastInput == InputKeyBack)
