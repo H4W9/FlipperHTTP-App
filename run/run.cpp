@@ -1033,7 +1033,7 @@ void FlipperHTTPRun::updateInput(InputEvent *event)
                     keyboard.reset();
                 }
             }
-            if (lastInput == InputKeyBack)
+            if (lastInput == InputKeyBack && event->type == InputTypeLong)
             {
                 scanStatus = RequestStatusWaiting;
                 currentView = AppViewMainMenu;
